@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificação de Elegibilidade</title>
+    <style>
+        /* --- ESTILO (CSS) --- */
+        :root {
+            --primary: #004d40; /* Verde Institucional Escuro */
+            --secondary: #00695c; /* Verde Médio */
+            --accent: #ffca28; /* Amarelo Alerta */
+            --gray: #f5f5f5;
+            --text: #333;
+            --white: #ffffff;
+            --shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        * { box-sizing: border-box; font-family: 'Segoe UI', Roboto, Helvetica, sans-serif; }
+
+        body {
+            background-color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .app-container {
+            background: var(--white);
+            width: 100%;
+            max-width: 450px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Header */
+        .header {
+            background-color: var(--primary);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 { margin: 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
+        .header p { margin: 5px 0 0; font-size: 0.85rem; opacity: 0.9; }
+
+        /* Corpo */
+        .content { padding: 25px; min-height: 350px; display: flex; flex-direction: column; justify-content: center; }
+
+        /* Telas (Steps) */
+        .step { display: none; animation: fadeIn 0.4s ease; }
+        .step.active { display: block; }
+
+        /* Elementos de Formulário */
+        .question { font-size: 1.1rem; font-weight: 600; color: var(--text); margin-bottom: 20px; text-align: center; }
+        
+        .btn-option {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            color: #555;
+            font-size: 1rem;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-option:hover, .btn-option:focus {
+            border-color: var(--secondary);
+            background-color: #f0fdf4;
+            color: var(--primary);
+        }
+
+        .input-group { margin-bottom: 20px; }
+        .input-field {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+
+        .btn-action {
+            background-color: var(--secondary);
+            color: white;
+            width: 100%;
+            padding: 18px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .btn-action:hover { background-color: var(--primary); }
+        .btn-pulse { animation: pulse 2s infinite; }
+
+        /* Loading */
+        .loader-box { text-align: center; padding: 40px 0; }
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid var(--primary);
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            animation: spin 1s linear infinite;
+        }
+        .loading-text { font-weight: bold; color: var(--secondary); margin-top: 15px; }
+
+        /* Resultados */
+        .alert-box {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .result-value {
+            font-size: 2.5rem;
+            color: #c62828; /* Vermelho para destaque */
+            font-weight: 800;
+            text-align: center;
+            margin: 20px 0;
+            display: block;
+        }
+
+        /* Animações */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
+        
+        /* Utilitários */
+        .hidden { display: none; }
+        .text-small { font-size: 0.8rem; color: #666; text-align: center; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="header">
+        <h1>Verificador Oficial LGPD</h1>
+        <p>Sistema de Consulta de Saldo Retido</p>
+    </div>
+
+    <div class="content">
+        
+        <div id="step-1" class="step active">
+            <p class="question">Digite seu CPF para iniciar a varredura:</p>
+            <div class="input-group">
+                <input type="tel" id="cpfInput" class="input-field" placeholder="000.000.000-00" maxlength="14" oninput="mascaraCPF(this)">
+            </div>
+            <button class="btn-action" onclick="goToStep(2)">INICIAR VERIFICAÇÃO</button>
+            <p class="text-small">Ambiente criptografado e seguro.</p>
+        </div>
+
+        <div id="step-2" class="step">
+            <p class="question">Você costuma colocar CPF na nota em farmácias?</p>
+            <button class="btn-option" onclick="goToStep(3)">Sim, quase sempre.</button>
+            <button class="btn-option" onclick="goToStep(3)">Às vezes.</button>
+            <button class="btn-option" onclick="goToStep(3)">Nunca.</button>
+        </div>
+
+        <div id="step-3" class="step">
+            <div class="alert-box">
+                <strong>ATENÇÃO:</strong> Muitas empresas vendem seus dados de consumo para bancos e seguradoras.
+            </div>
+            <p class="question">Você sabia que essa prática gera lucro para eles?</p>
+            <button class="btn-option" onclick="goToLoading()">Não, estou chocado.</button>
+            <button class="btn-option" onclick="goToLoading()">Desconfiava.</button>
+        </div>
+
+        <div id="step-loading" class="step">
+            <div class="loader-box">
+                <div class="spinner"></div>
+                <div id="log-text" class="loading-text">Conectando ao servidor...</div>
+            </div>
+        </div>
+
+        <div id="step-result" class="step">
+            <div class="alert-box">
+                ANÁLISE CONCLUÍDA COM SUCESSO
+            </div>
+            <p style="text-align: center;">Identificamos pendências no seu histórico.</p>
+            
+            <span class="result-value">R$ ---,--</span>
+            
+            <p class="text-small">Valor estimado disponível para solicitação.</p>
+            
+            <a href="SEU_LINK_DE_CHECKOUT_AQUI" style="text-decoration: none;">
+                <button class="btn-action btn-pulse" style="background-color: #2e7d32;">LIBERAR ACESSO AGORA</button>
+            </a>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    /* --- LÓGICA (JS) --- */
+    
+    // Máscara de CPF simples
+    function mascaraCPF(i){
+        var v = i.value;
+        if(isNaN(v[v.length-1])){ 
+           i.value = v.substring(0, v.length-1);
+           return;
+        }
+        i.setAttribute("maxlength", "14");
+        if (v.length == 3 || v.length == 7) i.value += ".";
+        if (v.length == 11) i.value += "-";
+    }
+
+    // Navegação entre passos
+    function goToStep(stepNum) {
+        document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
+        document.getElementById('step-' + stepNum).classList.add('active');
+    }
+
+    // Lógica de Loading
+    function goToLoading() {
+        goToStep('loading');
+        
+        const logs = [
+            "Buscando notas fiscais...",
+            "Analisando violações LGPD...",
+            "Calculando valores...",
+            "Finalizando relatório..."
+        ];
+        
+        let i = 0;
+        const logEl = document.getElementById('log-text');
+        
+        const interval = setInterval(() => {
+            if (i < logs.length) {
+                logEl.innerText = logs[i];
+                i++;
+            } else {
+                clearInterval(interval);
+                goToStep('result'); // Vai para o resultado final
+            }
+        }, 1200); // Troca mensagem a cada 1.2s
+    }
+</script>
+
+</body>
+</html>
