@@ -2,257 +2,330 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verificação de Elegibilidade</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Verificador de Elegibilidade</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700;900&display=swap" rel="stylesheet">
     <style>
-        /* --- ESTILO (CSS) --- */
-        :root {
-            --primary: #004d40; /* Verde Institucional Escuro */
-            --secondary: #00695c; /* Verde Médio */
-            --accent: #ffca28; /* Amarelo Alerta */
-            --gray: #f5f5f5;
-            --text: #333;
-            --white: #ffffff;
-            --shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-
-        * { box-sizing: border-box; font-family: 'Segoe UI', Roboto, Helvetica, sans-serif; }
-
+        /* --- CSS GERAL E RESET --- */
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
         body {
-            background-color: #e0e0e0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            font-family: 'Roboto', sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #fff;
             min-height: 100vh;
-            margin: 0;
-            padding: 20px;
-        }
-
-        .app-container {
-            background: var(--white);
-            width: 100%;
-            max-width: 450px;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.05);
             position: relative;
+            overflow: hidden;
         }
 
-        /* Header */
-        .header {
-            background-color: var(--primary);
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        .header h1 { margin: 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
-        .header p { margin: 5px 0 0; font-size: 0.85rem; opacity: 0.9; }
-
-        /* Corpo */
-        .content { padding: 25px; min-height: 350px; display: flex; flex-direction: column; justify-content: center; }
-
-        /* Telas (Steps) */
-        .step { display: none; animation: fadeIn 0.4s ease; }
-        .step.active { display: block; }
-
-        /* Elementos de Formulário */
-        .question { font-size: 1.1rem; font-weight: 600; color: var(--text); margin-bottom: 20px; text-align: center; }
-        
-        .btn-option {
+        /* --- BOTÕES --- */
+        .btn {
             display: block;
-            width: 100%;
-            padding: 15px;
-            margin-bottom: 12px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            background: white;
-            color: #555;
-            font-size: 1rem;
-            text-align: left;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .btn-option:hover, .btn-option:focus {
-            border-color: var(--secondary);
-            background-color: #f0fdf4;
-            color: var(--primary);
-        }
-
-        .input-group { margin-bottom: 20px; }
-        .input-field {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #ccc;
-            border-radius: 8px;
-            font-size: 1.2rem;
-            text-align: center;
-            letter-spacing: 2px;
-        }
-
-        .btn-action {
-            background-color: var(--secondary);
-            color: white;
             width: 100%;
             padding: 18px;
             border: none;
             border-radius: 8px;
             font-size: 1.1rem;
-            font-weight: bold;
+            font-weight: 700;
+            text-align: center;
             cursor: pointer;
             text-transform: uppercase;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: 0.2s;
+            margin-top: 15px;
+            text-decoration: none;
         }
-        .btn-action:hover { background-color: var(--primary); }
-        .btn-pulse { animation: pulse 2s infinite; }
-
-        /* Loading */
-        .loader-box { text-align: center; padding: 40px 0; }
-        .spinner {
-            width: 50px; height: 50px;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid var(--primary);
-            border-radius: 50%;
-            margin: 0 auto 20px;
-            animation: spin 1s linear infinite;
-        }
-        .loading-text { font-weight: bold; color: var(--secondary); margin-top: 15px; }
-
-        /* Resultados */
-        .alert-box {
-            background-color: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeeba;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
+        .btn-green { background-color: #00C853; color: white; box-shadow: 0 4px 0 #009624; }
+        .btn-green:active { transform: translateY(4px); box-shadow: none; }
+        .btn-blue { background-color: #2962FF; color: white; box-shadow: 0 4px 0 #0039CB; }
         
-        .result-value {
-            font-size: 2.5rem;
-            color: #c62828; /* Vermelho para destaque */
-            font-weight: 800;
-            text-align: center;
-            margin: 20px 0;
-            display: block;
+        .btn-option {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            color: #495057;
+            text-align: left;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
         }
+        .btn-option:hover { border-color: #2962FF; background: #e3f2fd; color: #2962FF; }
 
-        /* Animações */
+        /* --- HEADER --- */
+        .header {
+            background: #263238;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 { font-size: 1.2rem; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* --- TELAS (SECTIONS) --- */
+        .screen { display: none; padding: 25px; animation: fadeIn 0.5s ease; }
+        .screen.active { display: block; }
+
+        /* --- ELEMENTOS DO QUIZ --- */
+        .quiz-title { font-size: 1.4rem; font-weight: 900; color: #263238; margin-bottom: 10px; line-height: 1.3; }
+        .quiz-subtitle { font-size: 1rem; color: #546e7a; margin-bottom: 25px; }
+        .progress-bar { width: 100%; height: 6px; background: #eceff1; border-radius: 3px; margin-bottom: 20px; }
+        .progress-fill { height: 100%; background: #2962FF; border-radius: 3px; transition: width 0.3s; }
+
+        /* --- CARTA DE VENDAS (VSL STYLE) --- */
+        .sales-content { font-size: 1.1rem; color: #37474f; }
+        .sales-content h2 { color: #c62828; font-weight: 900; font-size: 1.6rem; margin-bottom: 20px; line-height: 1.2; background: #ffebee; padding: 15px; border-radius: 8px; text-align: center; }
+        .sales-content h3 { color: #263238; margin: 25px 0 10px; font-weight: 800; }
+        .sales-content p { margin-bottom: 15px; text-align: justify; }
+        .highlight { background-color: #fff9c4; padding: 2px 5px; font-weight: bold; }
+
+        /* --- FERRAMENTA (TOOL) --- */
+        .tool-box { background: #fafafa; border: 2px dashed #cfd8dc; padding: 20px; border-radius: 12px; margin-top: 20px; text-align: center; }
+        .input-cpf { width: 100%; padding: 15px; font-size: 1.3rem; text-align: center; border: 2px solid #b0bec5; border-radius: 8px; margin-bottom: 15px; letter-spacing: 2px; }
+        .select-state { width: 100%; padding: 15px; font-size: 1rem; border: 2px solid #b0bec5; border-radius: 8px; margin-bottom: 15px; background: white; }
+
+        /* --- LOADING SPINNER --- */
+        .loader-container { text-align: center; padding: 40px 0; }
+        .spinner { width: 50px; height: 50px; border: 5px solid #f3f3f3; border-top: 5px solid #2962FF; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        .loading-text { font-weight: bold; color: #2962FF; font-size: 1.1rem; }
+
+        /* --- RESULTADOS --- */
+        .result-box { background: #e8f5e9; border: 1px solid #a5d6a7; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
+        .violation-count { font-size: 1.5rem; font-weight: 900; color: #c62828; }
+        .money-value { font-size: 2.8rem; font-weight: 900; color: #00C853; display: block; margin: 15px 0; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .alert-red { color: #d32f2f; font-weight: bold; font-size: 0.9rem; margin-top: 10px; }
+
+        /* --- OFERTA --- */
+        .offer-box { background: #fff3e0; border: 2px solid #ffcc80; padding: 20px; border-radius: 10px; text-align: center; margin-top: 20px; }
+        .price-old { text-decoration: line-through; color: #999; font-size: 1.1rem; }
+        .price-new { font-size: 2rem; font-weight: 900; color: #ef6c00; }
+
+        /* UTILITÁRIOS */
+        .text-center { text-align: center; }
+        .hidden { display: none; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
-        
-        /* Utilitários */
-        .hidden { display: none; }
-        .text-small { font-size: 0.8rem; color: #666; text-align: center; margin-top: 10px; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        .pulse { animation: pulse 1.5s infinite; }
     </style>
 </head>
 <body>
 
-<div class="app-container">
-    <div class="header">
-        <h1>Verificador Oficial LGPD</h1>
-        <p>Sistema de Consulta de Saldo Retido</p>
-    </div>
+    <div class="container">
+        <div class="header">
+            <h1>Verificador de Elegibilidade LGPD</h1>
+        </div>
 
-    <div class="content">
-        
-        <div id="step-1" class="step active">
-            <p class="question">Digite seu CPF para iniciar a varredura:</p>
-            <div class="input-group">
-                <input type="tel" id="cpfInput" class="input-field" placeholder="000.000.000-00" maxlength="14" oninput="mascaraCPF(this)">
+        <div id="screen-1" class="screen active">
+            <div style="text-align: center; padding: 20px 0;">
+                <h2 class="quiz-title">VERIFICADOR DE SALDO RETIDO (CPF)</h2>
+                <p class="quiz-subtitle">Responda 3 perguntas rápidas para saber se você tem valores a receber de farmácias e supermercados.</p>
+                <button class="btn btn-green pulse" onclick="nextScreen(2)">COMEÇAR VERIFICAÇÃO</button>
             </div>
-            <button class="btn-action" onclick="goToStep(2)">INICIAR VERIFICAÇÃO</button>
-            <p class="text-small">Ambiente criptografado e seguro.</p>
         </div>
 
-        <div id="step-2" class="step">
-            <p class="question">Você costuma colocar CPF na nota em farmácias?</p>
-            <button class="btn-option" onclick="goToStep(3)">Sim, quase sempre.</button>
-            <button class="btn-option" onclick="goToStep(3)">Às vezes.</button>
-            <button class="btn-option" onclick="goToStep(3)">Nunca.</button>
+        <div id="screen-2" class="screen">
+            <div class="progress-bar"><div class="progress-fill" style="width: 33%"></div></div>
+            <h3 class="quiz-title">Você costuma colocar o seu CPF na Nota Fiscal em farmácias ou mercados?</h3>
+            <button class="btn-option" onclick="nextScreen(3)">Sim, quase sempre.</button>
+            <button class="btn-option" onclick="nextScreen(3)">Às vezes.</button>
+            <button class="btn-option" onclick="nextScreen(3)">Nunca coloco.</button>
         </div>
 
-        <div id="step-3" class="step">
-            <div class="alert-box">
-                <strong>ATENÇÃO:</strong> Muitas empresas vendem seus dados de consumo para bancos e seguradoras.
-            </div>
-            <p class="question">Você sabia que essa prática gera lucro para eles?</p>
-            <button class="btn-option" onclick="goToLoading()">Não, estou chocado.</button>
-            <button class="btn-option" onclick="goToLoading()">Desconfiava.</button>
+        <div id="screen-3" class="screen">
+            <div class="progress-bar"><div class="progress-fill" style="width: 66%"></div></div>
+            <h3 class="quiz-title">Seja sincero: Você sabia que muitas empresas vendem seus dados para bancos lucrarem nas suas costas?</h3>
+            <p style="font-size: 0.9rem; color: #666; margin-bottom: 20px; background: #fff3e0; padding: 10px; border-radius: 5px;">
+                É por isso que te oferecem 'descontinho'. Eles lucram até R$ 100,00 vendendo seus dados, e te dão R$ 2,00.
+            </p>
+            <button class="btn-option" onclick="nextScreen(4)">Não! Estou chocado(a).</button>
+            <button class="btn-option" onclick="nextScreen(4)">Desconfiava, mas não sabia que era tanto.</button>
+            <button class="btn-option" onclick="nextScreen(4)">Sim, eu sabia.</button>
         </div>
 
-        <div id="step-loading" class="step">
-            <div class="loader-box">
+        <div id="screen-4" class="screen">
+            <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
+            <h3 class="quiz-title">Você recebe muitas ligações de números desconhecidos ou mensagens de ofertas?</h3>
+            <button class="btn-option" onclick="startQuizLoading()">Sim, o dia todo! É insuportável.</button>
+            <button class="btn-option" onclick="startQuizLoading()">De vez em quando.</button>
+            <button class="btn-option" onclick="startQuizLoading()">Não recebo.</button>
+        </div>
+
+        <div id="screen-loading-quiz" class="screen">
+            <div class="loader-container">
                 <div class="spinner"></div>
-                <div id="log-text" class="loading-text">Conectando ao servidor...</div>
+                <p id="loading-text-quiz" class="loading-text">Conectando ao sistema...</p>
             </div>
         </div>
 
-        <div id="step-result" class="step">
-            <div class="alert-box">
-                ANÁLISE CONCLUÍDA COM SUCESSO
+        <div id="screen-sales" class="screen">
+            <div class="sales-content">
+                <h2>ALERTA: Se Você Colocou CPF na Nota nos Últimos 3 Anos, Você Pode Ter Um "Saque Extra" Disponível.</h2>
+                
+                <p><strong>Uma nova regra obriga grandes redes a devolverem parte do lucro que fizeram vendendo seus dados.</strong></p>
+
+                <h3>A Cena do Cotidiano</h3>
+                <p>Você sabe aquela cena... Você chega no caixa da farmácia, compra um remédio e a atendente pergunta: "CPF na nota?". Você diz o número, ganha R$ 2,00 de desconto e sai feliz.</p>
+                <p>Mas o que ninguém te contou é que, naquele segundo, você foi passado para trás. A farmácia pegou seus dados e vendeu para bancos e empresas de cobrança por um valor muito maior.</p>
+
+                <div style="background: #e3f2fd; padding: 15px; border-left: 4px solid #2962FF; margin: 20px 0;">
+                    <p><strong>A Solução (LGPD)</strong><br>
+                    Existe uma lei que diz: Se eles lucraram com seu nome, eles precisam dividir o lucro com você. O problema é que eles escondem isso.</p>
+                </div>
+
+                <h3>O App Restituição 3.0</h3>
+                <p>Desenvolvemos uma ferramenta que varre as notas fiscais do seu CPF e descobre quem vendeu seus dados. Nós já ajudamos milhares de brasileiros a resgatar esses valores.</p>
+                
+                <p><strong>Agora chegou a sua vez. Use a ferramenta abaixo para verificar seu saldo:</strong></p>
+
+                <div class="tool-box" id="tool-section">
+                    <h3 style="margin-top:0;">VERIFICADOR DE INDENIZAÇÃO</h3>
+                    <p style="font-size: 0.9rem; margin-bottom: 15px;">Ambiente Seguro e Criptografado</p>
+                    
+                    <input type="tel" id="cpfInput" class="input-cpf" placeholder="000.000.000-00" maxlength="14" oninput="mascaraCPF(this)">
+                    
+                    <select class="select-state">
+                        <option value="">Selecione seu Estado</option>
+                        <option value="SP">São Paulo</option>
+                        <option value="RJ">Rio de Janeiro</option>
+                        <option value="MG">Minas Gerais</option>
+                        <option value="OUTROS">Outros</option>
+                    </select>
+
+                    <button class="btn btn-green pulse" onclick="startToolAnalysis()">ANALISAR MEU CPF AGORA</button>
+                </div>
+
             </div>
-            <p style="text-align: center;">Identificamos pendências no seu histórico.</p>
+        </div>
+
+        <div id="screen-loading-tool" class="screen">
+            <div class="loader-container">
+                <div class="spinner"></div>
+                <p id="loading-text-tool" class="loading-text">Buscando registros...</p>
+                <p style="font-size: 0.8rem; color: #777; margin-top: 10px;">Isso pode levar alguns segundos.</p>
+            </div>
+        </div>
+
+        <div id="screen-violations" class="screen">
+            <div class="result-box" style="background: #fff3cd; border-color: #ffeeba;">
+                <h3 style="color: #856404;">ANÁLISE CONCLUÍDA!</h3>
+                <p style="margin-top: 10px;">Foram encontradas <span class="violation-count">37</span> violações de privacidade no seu CPF em farmácias e mercados.</p>
+            </div>
+            <button class="btn btn-blue" onclick="showFinalBalance()">VER SALDO DISPONÍVEL</button>
+        </div>
+
+        <div id="screen-final" class="screen">
+            <div class="result-box">
+                <h3>SALDO ENCONTRADO</h3>
+                <span class="money-value">R$ 2.457,32</span>
+                <p class="alert-red">ALERTA: Este saldo está parado e pronto para ser solicitado.</p>
+            </div>
             
-            <span class="result-value">R$ ---,--</span>
-            
-            <p class="text-small">Valor estimado disponível para solicitação.</p>
-            
-            <a href="SEU_LINK_DE_CHECKOUT_AQUI" style="text-decoration: none;">
-                <button class="btn-action btn-pulse" style="background-color: #2e7d32;">LIBERAR ACESSO AGORA</button>
+            <p class="text-center">Como você continua usando seu CPF, este valor tende a aumentar todos os meses.</p>
+            <p class="text-center" style="margin-top: 15px;"><strong>Deseja liberar o acesso para sacar este valor hoje?</strong></p>
+
+            <div class="offer-box">
+                <p>Taxa de Manutenção do Aplicativo</p>
+                <p class="price-old">De R$ 197,00</p>
+                <p class="price-new">Por R$ 29,90</p>
+            </div>
+
+            <a href="SEU_LINK_KIWIFY_AQUI" style="text-decoration: none;">
+                <button class="btn btn-green pulse" style="margin-top: 20px; font-size: 1.3rem;">SIM! QUERO LIBERAR MEU SAQUE</button>
             </a>
+
+            <div style="text-align: center; margin-top: 20px; font-size: 0.8rem; color: #999;">
+                <p>Garantia de 30 dias ou seu dinheiro de volta.</p>
+                <p>Site verificado e seguro.</p>
+            </div>
         </div>
 
     </div>
-</div>
 
-<script>
-    /* --- LÓGICA (JS) --- */
-    
-    // Máscara de CPF simples
-    function mascaraCPF(i){
-        var v = i.value;
-        if(isNaN(v[v.length-1])){ 
-           i.value = v.substring(0, v.length-1);
-           return;
+    <script>
+        // Função para navegar entre telas
+        function nextScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+            document.getElementById('screen-' + screenId).classList.add('active');
+            window.scrollTo(0, 0);
         }
-        i.setAttribute("maxlength", "14");
-        if (v.length == 3 || v.length == 7) i.value += ".";
-        if (v.length == 11) i.value += "-";
-    }
 
-    // Navegação entre passos
-    function goToStep(stepNum) {
-        document.querySelectorAll('.step').forEach(el => el.classList.remove('active'));
-        document.getElementById('step-' + stepNum).classList.add('active');
-    }
-
-    // Lógica de Loading
-    function goToLoading() {
-        goToStep('loading');
-        
-        const logs = [
-            "Buscando notas fiscais...",
-            "Analisando violações LGPD...",
-            "Calculando valores...",
-            "Finalizando relatório..."
-        ];
-        
-        let i = 0;
-        const logEl = document.getElementById('log-text');
-        
-        const interval = setInterval(() => {
-            if (i < logs.length) {
-                logEl.innerText = logs[i];
+        // Loading do Quiz (Simples)
+        function startQuizLoading() {
+            nextScreen('loading-quiz');
+            const texts = ["Conectando ao sistema...", "Analisando perfil...", "Verificando elegibilidade..."];
+            let i = 0;
+            const textEl = document.getElementById('loading-text-quiz');
+            
+            const interval = setInterval(() => {
                 i++;
-            } else {
-                clearInterval(interval);
-                goToStep('result'); // Vai para o resultado final
-            }
-        }, 1200); // Troca mensagem a cada 1.2s
-    }
-</script>
+                if (i < texts.length) {
+                    textEl.innerText = texts[i];
+                } else {
+                    clearInterval(interval);
+                    nextScreen('sales'); // Vai para a Carta de Vendas
+                }
+            }, 1000);
+        }
 
+        // Máscara CPF
+        function mascaraCPF(i){
+            var v = i.value;
+            if(isNaN(v[v.length-1])){ 
+               i.value = v.substring(0, v.length-1);
+               return;
+            }
+            i.setAttribute("maxlength", "14");
+            if (v.length == 3 || v.length == 7) i.value += ".";
+            if (v.length == 11) i.value += "-";
+        }
+
+        // Análise da Ferramenta (Simulador)
+        function startToolAnalysis() {
+            const cpf = document.getElementById('cpfInput').value;
+            if(cpf.length < 14) {
+                alert("Por favor, digite um CPF válido.");
+                return;
+            }
+
+            nextScreen('loading-tool');
+            
+            const logs = [
+                "Conectando à base de dados...",
+                "Buscando histórico de compras...",
+                "Identificando violações LGPD...",
+                "Calculando multas pendentes..."
+            ];
+            
+            let i = 0;
+            const logEl = document.getElementById('loading-text-tool');
+            
+            const interval = setInterval(() => {
+                if (i < logs.length) {
+                    logEl.innerText = logs[i];
+                    i++;
+                } else {
+                    clearInterval(interval);
+                    nextScreen('violations'); // Mostra as violações
+                }
+            }, 1200);
+        }
+
+        function showFinalBalance() {
+            // Efeito de "Calculando..." rápido
+            const btn = document.querySelector('#screen-violations button');
+            btn.innerText = "CALCULANDO...";
+            setTimeout(() => {
+                nextScreen('final'); // Mostra o saldo final e checkout
+            }, 1000);
+        }
+    </script>
 </body>
 </html>
