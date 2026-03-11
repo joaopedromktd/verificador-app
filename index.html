@@ -16,7 +16,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
     <style>
-        body { background-color: #0f1115; color: #f1f5f9; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 0; }
+        body { background-color: #0f1115; color: #f1f5f9; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 0; overflow-x: hidden; }
         .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
@@ -35,21 +35,39 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Estilo para o Dropdown Customizado */
-        .custom-select-list {
-            max-height: 200px;
-            overflow-y: auto;
-            z-index: 100;
-        }
+        .pulse-red { animation: pulseRed 2s infinite; }
+        @keyframes pulseRed { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+        
+        .contour-safe { border: 1px solid rgba(255,255,255,0.05); }
+        .contour-yellow { border: 1px solid rgba(234, 179, 8, 0.4); box-shadow: 0 0 15px rgba(234, 179, 8, 0.05); }
+        .contour-orange { border: 1px solid rgba(249, 115, 22, 0.4); box-shadow: 0 0 15px rgba(249, 115, 22, 0.08); }
+        .contour-green { border: 1px solid rgba(16, 185, 129, 0.4); box-shadow: 0 0 20px rgba(16, 185, 129, 0.1); }
+
+        .status-critical { border-left: 6px solid #ef4444; }
+        .status-urgent { border-left: 6px solid #f97316; }
+        .status-warning { border-left: 6px solid #eab308; }
+        .status-event { border-left: 6px solid #a855f7; }
+        .status-done { border-left: 6px solid #475569; opacity: 0.7; }
+        .status-planning { border-left: 6px solid #06b6d4; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useMemo } = React;
 
-        const ALL_PHASES = ['Fase 1', 'Fase 2', 'Fase 3', 'Fase 4', 'Fase 5', 'Fase 6', 'Fase 7'];
+        const IMPEDIMENT_TYPES = ["Aguardando Cliente", "Aguardando Material", "Aguardando Aprovação", "Dependência Setor", "Problema Técnico", "Outro"];
+        
+        const LABEL_COLORS = [
+            { id: 'cyan', bg: 'bg-cyan-500/10', text: 'text-cyan-400', border: 'border-cyan-500/30', hex: '#06b6d4' },
+            { id: 'emerald', bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/30', hex: '#10b981' },
+            { id: 'amber', bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30', hex: '#f59e0b' },
+            { id: 'rose', bg: 'bg-rose-500/10', text: 'text-rose-400', border: 'border-rose-500/30', hex: '#f43f5e' },
+            { id: 'indigo', bg: 'bg-indigo-500/10', text: 'text-indigo-400', border: 'border-indigo-500/30', hex: '#6366f1' },
+            { id: 'purple', bg: 'bg-purple-500/10', text: 'text-purple-400', border: 'border-purple-500/30', hex: '#a855f7' },
+            { id: 'slate', bg: 'bg-slate-500/10', text: 'text-slate-400', border: 'border-slate-500/30', hex: '#64748b' }
+        ];
 
         const firebaseConfig = {
             apiKey: "AIzaSyCaUqmEygbQSLgCorAuMz8zsZK-jpOk3Yc",
@@ -63,23 +81,57 @@
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const auth = firebase.auth();
-
         db.settings({ experimentalForceLongPolling: true });
 
-        const playChime = () => {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const note = (f, s, d, v) => {
-                    const o = ctx.createOscillator(); const g = ctx.createGain();
-                    o.type = 'sine'; o.frequency.setValueAtTime(f, s);
-                    g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(v, s + 0.02);
-                    g.gain.exponentialRampToValueAtTime(0.001, s + d);
-                    o.connect(g); g.connect(ctx.destination);
-                    o.start(s); o.stop(s + d);
-                };
-                const n = ctx.currentTime;
-                note(523.25, n, 0.5, 0.08); note(783.99, n + 0.05, 0.4, 0.06);
-            } catch(e) {}
+        const parseLocalDate = (dateStr) => {
+            if (!dateStr) return null;
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, m - 1, d, 0, 0, 0);
+        };
+
+        const checkTaskDependencyBlocked = (task, allTasks) => {
+            if (!task.dependsOn) return false;
+            const parent = allTasks.find(t => t.id === task.dependsOn);
+            return parent ? !parent.completed : false;
+        };
+
+        const getLaunchStatus = (launch, tasks) => {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const capDate = parseLocalDate(launch.dateStart);
+            const eventStart = parseLocalDate(launch.dateEvent);
+            const eventEnd = parseLocalDate(launch.dateEnd);
+            const activeTasks = tasks.filter(t => !t.isDeleted);
+            const pendingTasks = activeTasks.filter(t => !t.completed);
+            
+            const hasImpediments = activeTasks.some(t => {
+                if (t.completed) return false;
+                const isBlockedByDependency = checkTaskDependencyBlocked(t, activeTasks);
+                return (t.impedimentReason) || isBlockedByDependency;
+            });
+
+            if (eventEnd && today > eventEnd) return { label: 'Encerrado', color: 'bg-slate-600', level: 'done', priority: 0, class: 'status-done' };
+            if (eventStart && today >= eventStart) return { label: 'Em Evento', color: 'bg-purple-600', level: 'event', priority: 1, class: 'status-event' };
+            const diffCap = capDate ? Math.ceil((capDate - today) / (1000 * 60 * 60 * 24)) : null;
+            if (pendingTasks.length > 0 && ( (diffCap !== null && diffCap <= 12) || hasImpediments )) return { label: 'Crítico / Atrasado', color: 'bg-red-600 pulse-red', level: 'critical', priority: 10, class: 'status-critical' };
+            if (capDate && today >= capDate) return { label: 'Em Captação', color: 'bg-green-600', level: 'success', priority: 2, class: 'status-planning' };
+            if (!capDate) return { label: 'Sem Data', color: 'bg-slate-800', level: 'neutral', priority: 0, class: '' };
+            if (diffCap <= 3) return { label: 'Urgente', color: 'bg-red-500', level: 'urgent', priority: 8, days: diffCap, class: 'status-urgent' };
+            if (diffCap <= 7) return { label: 'Alerta', color: 'bg-orange-500', level: 'alert', priority: 6, days: diffCap, class: 'status-warning' };
+            if (diffCap <= 14) return { label: 'Atenção', color: 'bg-yellow-600', level: 'warning', priority: 4, days: diffCap, class: 'status-warning' };
+            return { label: 'Planejamento', color: 'bg-cyan-700', level: 'planning', priority: 1, days: diffCap, class: 'status-planning' };
+        };
+
+        const getCardContour = (launch) => {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const capDate = parseLocalDate(launch.dateStart);
+            if (!capDate) return 'contour-safe';
+            const diffDays = Math.ceil((capDate - today) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 0) return 'contour-green'; 
+            if (diffDays <= 10) return 'contour-orange'; 
+            if (diffDays <= 15) return 'contour-yellow'; 
+            return 'contour-safe';
         };
 
         const Icons = {
@@ -88,54 +140,40 @@
             Trash: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
             X: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-6 h-6"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
             Calendar: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>,
-            Star: () => <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3 text-cyan-400"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>,
-            RotateCcw: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>,
-            Edit: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>,
-            Users: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>,
             User: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>,
-            ChevronDown: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            Alert: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>,
+            Clock: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>,
+            Archive: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>,
+            Edit: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>,
+            ChevronDown: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><polyline points="6 9 12 15 18 9"></polyline></svg>,
+            ShieldAlert: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>,
+            Tag: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>,
+            Chart: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>,
+            Users: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>,
+            RotateCcw: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>,
+            Link: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>,
+            Search: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         };
 
-        // Componente Moderno de Dropdown
-        function ModernSelect({ value, options, onChange, placeholder = "Selecione..." }) {
+        function ModernSelect({ value, options, onChange, placeholder = "Selecione...", direction = "down" }) {
             const [isOpen, setIsOpen] = useState(false);
             const containerRef = useRef(null);
-
             useEffect(() => {
-                const handleClickOutside = (event) => {
-                    if (containerRef.current && !containerRef.current.contains(event.target)) setIsOpen(false);
-                };
-                document.addEventListener('mousedown', handleClickOutside);
-                return () => document.removeEventListener('mousedown', handleClickOutside);
+                const clickOutside = (e) => { if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false); };
+                document.addEventListener('mousedown', clickOutside);
+                return () => document.removeEventListener('mousedown', clickOutside);
             }, []);
-
             return (
                 <div className="relative w-full" ref={containerRef}>
-                    <div 
-                        onClick={() => setIsOpen(!isOpen)}
-                        className="flex items-center justify-between bg-black/40 border border-white/5 p-3 rounded-xl cursor-pointer hover:border-cyan-500/30 transition-all text-[11px] font-bold uppercase tracking-tight text-cyan-400"
-                    >
-                        <span className={!value ? "text-slate-600" : ""}>{value || placeholder}</span>
-                        <div className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
-                            <Icons.ChevronDown />
-                        </div>
+                    <div onClick={() => setIsOpen(!isOpen)} className="flex items-center justify-between bg-black/40 border border-white/10 p-3 rounded-xl cursor-pointer hover:border-cyan-500/30 transition-all text-[11px] font-bold uppercase text-slate-300">
+                        <span className={!value ? "text-slate-600" : "text-cyan-400 truncate pr-2"}>{value || placeholder}</span>
+                        <div className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}><Icons.ChevronDown /></div>
                     </div>
                     {isOpen && (
-                        <div className="absolute left-0 right-0 mt-2 bg-[#1c2128] border border-white/10 rounded-xl shadow-2xl custom-select-list animate-in z-50 py-1">
-                            <div 
-                                onClick={() => { onChange(""); setIsOpen(false); }}
-                                className="px-4 py-2.5 hover:bg-white/5 text-[10px] font-black uppercase text-slate-500 cursor-pointer border-b border-white/5"
-                            >
-                                — Nenhum —
-                            </div>
+                        <div className={`absolute left-0 right-0 ${direction === 'up' ? 'bottom-full mb-2' : 'mt-2'} bg-[#1c2128] border border-white/10 rounded-xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] animate-in z-[100] py-1 overflow-y-auto max-h-48 custom-scrollbar`}>
+                            <div onClick={() => { onChange(""); setIsOpen(false); }} className="px-4 py-2 hover:bg-white/5 text-[10px] font-black uppercase text-slate-500 cursor-pointer border-b border-white/5">Nenhuma</div>
                             {options.map(opt => (
-                                <div 
-                                    key={opt.id || opt.name}
-                                    onClick={() => { onChange(opt.name); setIsOpen(false); }}
-                                    className={`px-4 py-2.5 hover:bg-cyan-500/10 hover:text-cyan-400 text-[10px] font-black uppercase cursor-pointer transition-colors ${value === opt.name ? 'text-cyan-400 bg-cyan-500/5' : 'text-slate-300'}`}
-                                >
-                                    {opt.name}
-                                </div>
+                                <div key={opt.id || opt.name} onClick={() => { onChange(opt.id || opt.name); setIsOpen(false); }} className="px-4 py-2 hover:bg-cyan-500/10 hover:text-cyan-400 text-[10px] font-black uppercase cursor-pointer text-slate-300 transition-colors truncate">{opt.name}</div>
                             ))}
                         </div>
                     )}
@@ -144,29 +182,23 @@
         }
 
         function App() {
+            const [view, setView] = useState('board'); 
             const [user, setUser] = useState(null);
             const [launches, setLaunches] = useState([]);
             const [tasks, setTasks] = useState([]);
+            const [checklists, setChecklists] = useState([]);
             const [assignees, setAssignees] = useState([]);
             const [isAdding, setIsAdding] = useState(false);
             const [isBinOpen, setIsBinOpen] = useState(false);
             const [isAssigneesOpen, setIsAssigneesOpen] = useState(false);
-            const [newLaunch, setNewLaunch] = useState({ title: '', dateStart: '', dateEvent: '' });
+            const [isArchivesOpen, setIsArchivesOpen] = useState(false);
             const [loading, setLoading] = useState(true);
-            const [error, setError] = useState(null);
+            const [focusedLaunchId, setFocusedLaunchId] = useState(null);
 
             useEffect(() => {
-                const initAuth = async () => {
-                    try {
-                        await auth.signInAnonymously();
-                    } catch (e) {
-                        setError("Falha na autenticação do Firebase.");
-                        setLoading(false);
-                    }
-                };
                 const unsubscribe = auth.onAuthStateChanged((u) => {
                     if (u) setUser(u);
-                    else initAuth();
+                    else auth.signInAnonymously().catch(console.error);
                 });
                 return () => unsubscribe();
             }, []);
@@ -174,336 +206,728 @@
             useEffect(() => {
                 if (!user) return;
                 const baseRef = db.collection('shaktar_data').doc('main');
-                
-                const unsubL = baseRef.collection('launches').onSnapshot(s => {
-                    setLaunches(s.docs.map(d => ({id: d.id, ...d.data()})));
-                    setLoading(false);
-                }, (err) => { 
-                    setError("Erro ao conectar com o Firestore."); 
-                    setLoading(false); 
-                });
-
-                const unsubT = baseRef.collection('tasks').onSnapshot(s => {
-                    setTasks(s.docs.map(d => ({id: d.id, ...d.data()})));
-                }, (err) => console.error(err));
-
-                const unsubA = baseRef.collection('assignees').onSnapshot(s => {
-                    setAssignees(s.docs.map(d => ({id: d.id, ...d.data()})));
-                }, (err) => console.error(err));
-
-                return () => { unsubL(); unsubT(); unsubA(); };
+                const unsubL = baseRef.collection('launches').onSnapshot(s => { setLaunches(s.docs.map(d => ({id: d.id, ...d.data()}))); setLoading(false); });
+                const unsubT = baseRef.collection('tasks').onSnapshot(s => setTasks(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                const unsubC = baseRef.collection('checklists').onSnapshot(s => setChecklists(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                const unsubA = baseRef.collection('assignees').onSnapshot(s => setAssignees(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                return () => { unsubL(); unsubT(); unsubC(); unsubA(); };
             }, [user]);
 
-            const handleCreate = async (e) => {
-                e.preventDefault();
-                if (!newLaunch.title.trim()) return;
-                const temp = {...newLaunch};
-                setNewLaunch({ title: '', dateStart: '', dateEvent: '' });
-                setIsAdding(false);
-                try {
-                    await db.collection('shaktar_data').doc('main').collection('launches').add({
-                        title: temp.title.trim(),
-                        dateStart: temp.dateStart || null,
-                        dateEvent: temp.dateEvent || null,
-                        activePhase: 'Fase 1',
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        isDeleted: false
-                    });
-                } catch (err) { alert("Erro ao criar: " + err.message); }
-            };
+            const closeFocusedLaunch = () => setFocusedLaunchId(null);
 
             if (loading) return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-[#0f1115]">
                     <div className="spinner mb-6"></div>
-                    <p className="text-cyan-400 font-black text-xs tracking-[0.3em] uppercase animate-pulse">Iniciando Shaktar...</p>
+                    <p className="text-cyan-400 font-black text-[10px] tracking-[0.4em] uppercase animate-pulse">Squad Shaktar Inicializando...</p>
                 </div>
             );
 
-            const activeL = launches.filter(l => !l.isDeleted).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+            const focusedLaunch = launches.find(l => l.id === focusedLaunchId);
 
             return (
                 <div className="min-h-screen flex flex-col bg-[#0f1115]">
-                    <header className="bg-[#161920]/90 backdrop-blur-md border-b border-white/5 p-4 flex justify-between items-center sticky top-0 z-40">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-cyan-600 p-2 rounded-xl text-white shadow-lg shadow-cyan-900/20">🚀</div>
-                            <h1 className="font-bold text-white text-sm md:text-lg tracking-tight">Central <span className="text-cyan-400">Shaktar</span></h1>
+                    <header className="bg-[#161920]/90 backdrop-blur-md border-b border-white/5 p-4 flex justify-between items-center sticky top-0 z-40 shadow-xl">
+                        <div className="flex items-center gap-6">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-cyan-600 p-2 rounded-xl text-white">🚀</div>
+                                <h1 className="font-bold text-white text-lg tracking-tight">Shaktar <span className="text-cyan-400">Hub</span></h1>
+                            </div>
+                            <nav className="hidden md:flex bg-black/40 p-1 rounded-xl border border-white/5">
+                                <button onClick={() => setView('board')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'board' ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Board</button>
+                                <button onClick={() => setView('pipeline')} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'pipeline' ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Pipeline</button>
+                            </nav>
                         </div>
-                        <div className="flex gap-2 items-center">
-                            <button onClick={() => setIsAssigneesOpen(true)} className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all">
-                                <Icons.Users /> Responsáveis
-                            </button>
-                            <button onClick={() => setIsBinOpen(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all">
-                                <Icons.Trash /> Lixeira
-                            </button>
-                            <button onClick={() => setIsAdding(true)} className="bg-cyan-600 px-5 py-2 rounded-xl font-bold text-xs uppercase shadow-lg shadow-cyan-900/20 hover:bg-cyan-500 text-white transition-all">Novo Projeto</button>
+                        <div className="flex gap-2">
+                            <button onClick={() => setIsArchivesOpen(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all"><Icons.Archive /><span className="hidden lg:inline">Arquivados</span></button>
+                            <button onClick={() => setIsAssigneesOpen(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all"><Icons.Users /><span className="hidden lg:inline">Squad</span></button>
+                            <button onClick={() => setIsBinOpen(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-white/10 text-[10px] font-black uppercase text-slate-500 hover:text-white transition-all"><Icons.Trash /><span className="hidden lg:inline">Lixeira</span></button>
+                            <button onClick={() => setIsAdding(true)} className="bg-cyan-600 px-5 py-2 rounded-xl font-bold text-xs uppercase shadow-lg shadow-cyan-900/20 hover:bg-cyan-500 text-white transition-all active:scale-95">Novo Lançamento</button>
                         </div>
                     </header>
 
-                    <main className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 flex-1 max-w-7xl mx-auto w-full">
-                        {activeL.length === 0 ? (
-                            <div className="col-span-full py-20 text-center opacity-20 border-2 border-dashed border-white/5 rounded-[3rem] flex flex-col items-center justify-center">
-                                <p className="text-4xl mb-4">🌑</p>
-                                <p className="uppercase font-black text-[10px] tracking-[0.4em]">Aguardando novo lançamento</p>
-                            </div>
-                        ) : activeL.map(l => (
-                            <LaunchCard key={l.id} launch={l} tasks={tasks.filter(t => t.launchId === l.id)} assignees={assignees} db={db} />
-                        ))}
-                    </main>
+                    {view === 'board' ? (
+                        <main className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 flex-1 max-w-7xl mx-auto w-full animate-in">
+                            {launches.filter(l => !l.isDeleted && !l.isArchived).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).map(l => (
+                                <LaunchCard key={l.id} launch={l} tasks={tasks.filter(t => t.launchId === l.id)} checklists={checklists.filter(c => c.launchId === l.id)} assignees={assignees} db={db} />
+                            ))}
+                        </main>
+                    ) : (
+                        <PipelineView launches={launches.filter(l => !l.isDeleted && !l.isArchived)} tasks={tasks.filter(t => !t.isDeleted)} assignees={assignees} onOpenLaunch={setFocusedLaunchId} />
+                    )}
 
-                    {isAdding && (
-                        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 animate-in backdrop-blur-sm">
-                            <div className="bg-[#1c2128] p-8 rounded-[2.5rem] w-full max-w-md border border-white/10 shadow-2xl relative">
-                                <button onClick={() => setIsAdding(false)} className="absolute top-6 right-6 text-slate-500 hover:text-white"><Icons.X /></button>
-                                <h2 className="text-xl font-bold mb-6 text-white tracking-tight">Novo Lançamento</h2>
-                                <form onSubmit={handleCreate} className="space-y-5">
-                                    <input autoFocus className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-cyan-500/50 text-white" value={newLaunch.title} onChange={e => setNewLaunch({...newLaunch, title: e.target.value})} placeholder="Título do Projeto" />
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <input type="date" className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-white text-sm" value={newLaunch.dateStart} onChange={e => setNewLaunch({...newLaunch, dateStart: e.target.value})} />
-                                        <input type="date" className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-white text-sm" value={newLaunch.dateEvent} onChange={e => setNewLaunch({...newLaunch, dateEvent: e.target.value})} />
-                                    </div>
-                                    <button className="w-full bg-cyan-600 hover:bg-cyan-500 py-4 rounded-2xl font-bold text-white shadow-lg transition-all active:scale-95">CONFIRMAR</button>
-                                </form>
+                    {isAdding && <AddLaunchModal onClose={() => setIsAdding(false)} db={db} />}
+                    {isAssigneesOpen && <AssigneesModal assignees={assignees} onClose={() => setIsAssigneesOpen(false)} db={db} />}
+                    {isBinOpen && <BinModal launches={launches.filter(l => l.isDeleted)} tasks={tasks.filter(t => t.isDeleted)} onClose={() => setIsBinOpen(false)} db={db} />}
+                    {isArchivesOpen && <ArchivesModal launches={launches.filter(l => !l.isDeleted && l.isArchived)} onClose={() => setIsArchivesOpen(false)} db={db} />}
+                    
+                    {focusedLaunch && (
+                        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4 md:p-10 animate-in">
+                            <div className="w-full max-w-lg">
+                                <button onClick={closeFocusedLaunch} className="absolute top-10 right-10 z-50 p-2 bg-white/5 rounded-full text-white hover:bg-red-500 transition-all"><Icons.X /></button>
+                                <LaunchCard 
+                                    launch={focusedLaunch} 
+                                    tasks={tasks.filter(t => t.launchId === focusedLaunch.id)} 
+                                    checklists={checklists.filter(c => c.launchId === focusedLaunch.id)} 
+                                    assignees={assignees} 
+                                    db={db} 
+                                />
                             </div>
                         </div>
                     )}
-
-                    {isAssigneesOpen && <AssigneesModal assignees={assignees} onClose={() => setIsAssigneesOpen(false)} db={db} />}
-                    {isBinOpen && <BinModal launches={launches.filter(l => l.isDeleted)} tasks={tasks.filter(t => t.isDeleted)} onClose={() => setIsBinOpen(false)} db={db} />}
                 </div>
             );
         }
 
-        function LaunchCard({ launch, tasks, assignees, db }) {
-            const [viewPhase, setViewPhase] = useState(launch.activePhase || 'Fase 1');
+        function LaunchCard({ launch, tasks, checklists, assignees, db }) {
+            const [tab, setTab] = useState('execucao'); 
             const [txt, setTxt] = useState('');
-            const [selectedAssignee, setSelectedAssignee] = useState('');
-            const [isDelModal, setIsDelModal] = useState(false);
+            const [selAssignee, setSelAssignee] = useState('');
             const [isEditModal, setIsEditModal] = useState(false);
-            const [editingLaunch, setEditingLaunch] = useState({ ...launch });
-            const [editingTaskId, setEditingTaskId] = useState(null);
-            const [editingTask, setEditingTask] = useState({ text: '', assignee: '' });
+            const [isTagModal, setIsTagModal] = useState(false);
+            const [activeTaskDetail, setActiveTaskDetail] = useState(null);
+            
+            const [isDelModal, setIsDelModal] = useState(false);
+            const [isArchModal, setIsArchModal] = useState(false);
+            const [taskToDeleteId, setTaskToDeleteId] = useState(null);
 
             const baseRef = db.collection('shaktar_data').doc('main');
-            const actT = tasks.filter(t => !t.isDeleted);
-            const curT = actT.filter(t => (t.phase || 'Fase 1') === viewPhase);
+            const activeTasks = tasks.filter(t => !t.isDeleted);
             
-            const totalTasks = actT.length;
-            const completedTasks = actT.filter(t => t.completed).length;
-            const prog = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+            const allLaunchTasks = useMemo(() => {
+                return [...activeTasks].sort((a, b) => {
+                    if (a.completed === b.completed) return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+                    return a.completed ? 1 : -1;
+                });
+            }, [activeTasks]);
+            
+            const done = activeTasks.filter(t => t.completed).length;
+            const prog = activeTasks.length > 0 ? Math.round((done / activeTasks.length) * 100) : 0;
+            const statusInfo = getLaunchStatus(launch, activeTasks);
+            const contourClass = getCardContour(launch);
+            const manualLabel = launch.manualLabel || null;
 
-            // Lógica Inteligente de Fase Ativa (Recuo e Avanço Automático)
-            useEffect(() => {
-                if (!actT.length) return;
+            const preChecklist = checklists.filter(c => c.type === 'pre').sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+            const posChecklist = checklists.filter(c => c.type === 'pos').sort((a,b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
 
-                let calculatedActivePhase = 'Fase 1';
-                let allPreviousCompleted = true;
+            const toggleTask = async (task) => {
+                if (!task.completed) playChime();
+                await baseRef.collection('tasks').doc(task.id).update({ completed: !task.completed });
+            };
 
-                for (const phase of ALL_PHASES) {
-                    const phaseTasks = actT.filter(t => (t.phase || 'Fase 1') === phase);
-                    
-                    if (phaseTasks.length > 0) {
-                        const phaseDone = phaseTasks.every(t => t.completed);
-                        if (!phaseDone) {
-                            calculatedActivePhase = phase;
-                            allPreviousCompleted = false;
-                            break;
-                        } else {
-                            // Se a fase está completa, a próxima "ativa" é a seguinte
-                            const idx = ALL_PHASES.indexOf(phase);
-                            if (idx < ALL_PHASES.length - 1) {
-                                calculatedActivePhase = ALL_PHASES[idx + 1];
-                            }
-                        }
-                    } else {
-                        // Se não tem tarefas, mantemos a lógica de pular para a próxima se a anterior estava ok
-                        // Mas só se as tarefas das fases anteriores estiverem ok.
-                    }
-                }
+            const toggleChecklist = async (item) => {
+                await baseRef.collection('checklists').doc(item.id).update({ completed: !item.completed });
+            };
 
-                if (calculatedActivePhase !== launch.activePhase) {
-                    baseRef.collection('launches').doc(launch.id).update({ activePhase: calculatedActivePhase });
-                }
-            }, [completedTasks, totalTasks]);
+            const deleteTask = async (taskId) => {
+                await baseRef.collection('tasks').doc(taskId).update({ isDeleted: true, deletedAt: firebase.firestore.FieldValue.serverTimestamp() });
+                setTaskToDeleteId(null);
+            };
 
-            const addTask = async (e) => {
+            const deleteChecklist = async (id) => {
+                await baseRef.collection('checklists').doc(id).delete();
+            };
+
+            const handleAdd = async (e) => {
                 e.preventDefault(); if(!txt.trim()) return;
-                const v = txt; const r = selectedAssignee;
-                setTxt(''); setSelectedAssignee('');
-                await baseRef.collection('tasks').add({
-                    launchId: launch.id, text: v, assignee: r || null, 
-                    completed: false, phase: viewPhase, isDeleted: false, createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
+                
+                if (tab === 'execucao') {
+                    await baseRef.collection('tasks').add({
+                        launchId: launch.id, text: txt.trim(), assignee: selAssignee || null,
+                        completed: false, isDeleted: false,
+                        dependsOn: null, impedimentReason: '', impedimentType: '',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    await baseRef.collection('checklists').add({
+                        launchId: launch.id, text: txt.trim(), type: tab,
+                        completed: false, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+                setTxt(''); setSelAssignee('');
             };
 
-            const toggleTask = async (id, currentStatus) => {
-                if(!currentStatus) playChime();
-                await baseRef.collection('tasks').doc(id).update({completed: !currentStatus});
-            };
-
-            const saveTaskEdit = async (taskId) => {
-                if(!editingTask.text.trim()) return;
-                await baseRef.collection('tasks').doc(taskId).update({ 
-                    text: editingTask.text, 
-                    assignee: editingTask.assignee || null 
-                });
-                setEditingTaskId(null);
-            };
-
-            const formatDateSafe = (dateStr) => {
-                if (!dateStr || typeof dateStr !== 'string') return '';
-                return dateStr.split('-').reverse().slice(0, 2).join('/');
+            const playChime = () => {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const note = (f, s, d, v) => {
+                        const o = ctx.createOscillator(); const g = ctx.createGain();
+                        o.type = 'sine'; o.frequency.setValueAtTime(f, s);
+                        g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(v, s + 0.02);
+                        g.gain.exponentialRampToValueAtTime(0.001, s + d);
+                        o.connect(g); g.connect(ctx.destination);
+                        o.start(s); o.stop(s + d);
+                    };
+                    const n = ctx.currentTime;
+                    note(523.25, n, 0.5, 0.08); note(783.99, n + 0.05, 0.4, 0.06);
+                } catch(e) {}
             };
 
             return (
-                <div className="bg-[#161920] rounded-[2.5rem] border border-white/5 flex flex-col h-[650px] relative overflow-hidden transition-all group hover:border-cyan-500/20 shadow-2xl">
-                    
-                    <div className="p-6 border-b border-white/5 shrink-0 bg-gradient-to-b from-white/[0.02] to-transparent">
+                <div className={`bg-[#161920] rounded-[2.5rem] flex flex-col h-[650px] relative overflow-hidden transition-all duration-500 group shadow-2xl ${contourClass}`}>
+                    <div className="p-6 border-b border-white/5 shrink-0 bg-gradient-to-b from-white/[0.01] to-transparent">
                         <div className="flex justify-between items-start mb-4">
                             <div className="flex-1 truncate pr-4">
-                                <h3 className="font-bold text-white text-lg truncate tracking-tight">{launch.title}</h3>
-                                <div className="flex items-center gap-2 mt-2">
-                                    {launch.dateStart && <span className="text-[9px] font-bold text-slate-500 bg-white/5 px-2 py-0.5 rounded flex items-center gap-1"><Icons.Calendar /> {formatDateSafe(launch.dateStart)}</span>}
-                                    {launch.dateEvent && <span className="text-[9px] font-bold text-cyan-400 bg-cyan-900/20 px-2 py-0.5 rounded flex items-center gap-1"><Icons.Calendar /> {formatDateSafe(launch.dateEvent)}</span>}
+                                <div className="flex flex-col gap-2 mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-bold text-white text-lg truncate tracking-tight">{launch.title}</h3>
+                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded shadow-sm text-white shrink-0 ${statusInfo.color}`}>{statusInfo.label}</span>
+                                    </div>
+                                    {manualLabel && (
+                                        <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded border self-start ${LABEL_COLORS.find(c => c.id === manualLabel.color)?.bg} ${LABEL_COLORS.find(c => c.id === manualLabel.color)?.text} ${LABEL_COLORS.find(c => c.id === manualLabel.color)?.border}`}>
+                                            <Icons.Tag />
+                                            <span className="text-[8px] font-black uppercase tracking-widest">{manualLabel.text}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[9px] font-bold text-slate-500 bg-white/5 px-2 py-0.5 rounded flex items-center gap-1"><Icons.Calendar /> {launch.dateStart?.split('-').reverse().slice(0,2).join('/') || '--/--'}</span>
+                                    <span className="text-[9px] font-bold text-cyan-400 bg-cyan-900/20 px-2 py-0.5 rounded flex items-center gap-1"><Icons.Calendar /> {launch.dateEvent?.split('-').reverse().slice(0,2).join('/') || '--/--'}</span>
                                 </div>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => setIsEditModal(true)} className="text-slate-600 hover:text-white transition-colors"><Icons.Edit /></button>
-                                <button onClick={() => setIsDelModal(true)} className="text-slate-700 hover:text-red-500 transition-colors"><Icons.Trash /></button>
+                            <div className="flex gap-1.5">
+                                <button onClick={() => setIsArchModal(true)} title="Arquivar Lançamento" className="p-1.5 rounded-lg text-slate-600 hover:bg-white/5 hover:text-cyan-400 transition-all"><Icons.Archive /></button>
+                                <button onClick={() => setIsTagModal(true)} title="Etiqueta Manual" className="p-1.5 rounded-lg text-slate-600 hover:bg-white/5 hover:text-cyan-400 transition-all"><Icons.Tag /></button>
+                                <button onClick={() => setIsEditModal(true)} title="Editar Lançamento" className="p-1.5 rounded-lg text-slate-600 hover:bg-white/5 hover:text-white transition-all"><Icons.Edit /></button>
+                                <button onClick={() => setIsDelModal(true)} title="Remover para Lixeira" className="p-1.5 rounded-lg text-slate-700 hover:bg-white/5 hover:text-red-500 transition-all"><Icons.Trash /></button>
                             </div>
                         </div>
 
-                        <div className="flex justify-between items-center mb-2">
-                            <div className="flex items-center gap-2">
-                                <div className="bg-white/5 px-2.5 py-1 rounded-lg border border-white/5 flex items-center gap-2 shadow-inner">
-                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Tasks</span>
-                                    <span className="text-xs font-bold text-white">{completedTasks}<span className="text-slate-600">/{totalTasks}</span></span>
-                                </div>
-                                {prog === 100 && totalTasks > 0 && (
-                                    <div className="bg-green-500/20 text-green-500 text-[9px] font-black px-2 py-1 rounded-lg animate-pulse border border-green-500/10">100% OK</div>
-                                )}
+                        <div className="flex justify-between items-end mb-2">
+                            <div className="bg-white/5 px-2.5 py-1 rounded-lg border border-white/5 flex items-center gap-2 shadow-inner">
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-tighter">Execução</span>
+                                <span className="text-xs font-bold text-white">{done}<span className="text-slate-600">/{activeTasks.length}</span></span>
                             </div>
-                            <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1.5"><Icons.Star /> {launch.activePhase}</span>
+                            <span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest flex items-center gap-1.5"><Icons.Clock /> {prog}%</span>
                         </div>
-                        
                         <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 transition-all duration-700" style={{width: `${prog}%`}}></div>
                         </div>
                     </div>
 
-                    <div className="bg-black/20 border-b border-white/5 flex shrink-0 overflow-x-auto no-scrollbar">
-                        <div className="flex gap-1 p-3 min-w-max">
-                            {ALL_PHASES.map(p => (
-                                <button key={p} onClick={() => setViewPhase(p)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all border flex items-center gap-2 ${viewPhase === p ? 'bg-white/10 border-white/10 text-white shadow-lg' : 'bg-transparent border-transparent text-slate-600 hover:text-slate-400'}`}>
-                                    {p}
-                                </button>
-                            ))}
-                        </div>
+                    <div className="bg-black/20 border-b border-white/5 p-1 flex gap-1 shrink-0">
+                        <button onClick={() => setTab('execucao')} className={`flex-1 py-2 text-[9px] font-black uppercase transition-all rounded-xl ${tab === 'execucao' ? 'bg-white/5 text-white shadow-inner' : 'text-slate-600 hover:text-slate-400'}`}>Execução</button>
+                        <button onClick={() => setTab('pre')} className={`flex-1 py-2 text-[9px] font-black uppercase transition-all rounded-xl ${tab === 'pre' ? 'bg-white/5 text-white shadow-inner' : 'text-slate-600 hover:text-slate-400'}`}>Pré-campanha</button>
+                        <button onClick={() => setTab('pos')} className={`flex-1 py-2 text-[9px] font-black uppercase transition-all rounded-xl ${tab === 'pos' ? 'bg-white/5 text-white shadow-inner' : 'text-slate-600 hover:text-slate-400'}`}>Pós-campanha</button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-5 space-y-2.5 custom-scrollbar">
-                        {curT.map(t => (
-                            <div key={t.id} className={`flex items-start gap-3 p-3 rounded-2xl border transition-all ${t.completed ? 'bg-black/20 border-transparent opacity-40' : 'bg-white/[0.02] border-white/5 hover:border-cyan-500/20 shadow-sm'}`}>
-                                <button onClick={() => toggleTask(t.id, t.completed)} className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${t.completed ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-white/10 hover:border-cyan-500/50'}`}>{t.completed && <Icons.Check />}</button>
-                                
-                                <div className="flex-1 min-w-0">
-                                    {editingTaskId === t.id ? (
-                                        <div className="space-y-3 bg-black/40 p-4 rounded-xl border border-cyan-500/30 animate-in">
-                                            <input autoFocus className="bg-transparent text-sm w-full outline-none text-white font-medium border-b border-white/5 pb-1 focus:border-cyan-500/50" value={editingTask.text} onChange={e => setEditingTask({...editingTask, text: e.target.value})} onKeyDown={e => e.key === 'Enter' && saveTaskEdit(t.id)} />
-                                            <div className="flex flex-col gap-2">
-                                                <ModernSelect value={editingTask.assignee} options={assignees} onChange={(val) => setEditingTask({...editingTask, assignee: val})} />
-                                                <button onClick={() => saveTaskEdit(t.id)} className="w-full bg-cyan-600 text-[10px] font-black py-2 rounded-lg text-white shadow-lg shadow-cyan-900/40">SALVAR TAREFA</button>
+                    <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar bg-black/5 relative">
+                        {tab === 'execucao' ? (
+                            <>
+                                {allLaunchTasks.length === 0 && <EmptyState text="Sem tarefas operacionais" />}
+                                {allLaunchTasks.map(t => {
+                                    const isBlockedByDependency = checkTaskDependencyBlocked(t, activeTasks);
+                                    const isImpeded = t.impedimentReason || isBlockedByDependency;
+                                    
+                                    return (
+                                        <div key={t.id} className={`task-item flex items-center gap-3 p-3.5 rounded-2xl border transition-all ${t.completed ? 'bg-black/20 border-transparent opacity-40' : isImpeded ? 'bg-red-500/5 border-red-500/40 pulse-red' : 'bg-white/[0.02] border-white/5 hover:border-cyan-500/20 shadow-sm'}`}>
+                                            <button onClick={() => toggleTask(t)} className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${t.completed ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-white/10 hover:border-cyan-500/50'}`}>
+                                                {t.completed && <Icons.Check />}
+                                            </button>
+                                            <div className="flex-1 min-w-0" onClick={() => setActiveTaskDetail(t)}>
+                                                <div className="flex flex-col cursor-pointer group">
+                                                    <span className={`text-[13px] font-medium break-words leading-tight ${t.completed ? 'line-through text-slate-600' : 'text-slate-200 group-hover:text-cyan-400'}`}>{t.text}</span>
+                                                    <div className="flex flex-wrap items-center gap-3 mt-2">
+                                                        {t.assignee && <span className="text-[9px] font-bold text-cyan-600 flex items-center gap-1 uppercase tracking-tighter"><Icons.User /> {t.assignee}</span>}
+                                                        {isBlockedByDependency && !t.completed && (
+                                                            <span className="text-[8px] font-black text-amber-500 uppercase flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20"><Icons.Link /> Dependência</span>
+                                                        )}
+                                                        {t.impedimentReason && !t.completed && (
+                                                            <span className="text-[8px] font-black text-white uppercase flex items-center gap-1 bg-red-600 px-1.5 py-0.5 rounded shadow-lg shadow-red-900/40"><Icons.Alert /> {isBlockedByDependency ? 'Bloqueio Ext.' : 'Impedido'}</span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
+                                            <button onClick={(e) => { e.stopPropagation(); setTaskToDeleteId(t.id); }} className="text-slate-700 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 p-1"><Icons.Trash /></button>
                                         </div>
-                                    ) : (
-                                        <div className="flex flex-col" onClick={() => { setEditingTaskId(t.id); setEditingTask({ text: t.text, assignee: t.assignee || '' }); }}>
-                                            <span className={`text-sm font-medium break-words cursor-pointer ${t.completed ? 'line-through text-slate-600' : 'text-slate-300 hover:text-white'}`}>{t.text}</span>
-                                            {t.assignee && <span className="text-[9px] font-bold text-cyan-500 flex items-center gap-1 mt-1.5 uppercase tracking-tighter"><Icons.User /> {t.assignee}</span>}
-                                        </div>
-                                    )}
-                                </div>
-                                <button onClick={() => baseRef.collection('tasks').doc(t.id).update({isDeleted: true, deletedAt: firebase.firestore.FieldValue.serverTimestamp()})} className="text-slate-800 hover:text-red-500 transition-colors shrink-0"><Icons.Trash /></button>
-                            </div>
-                        ))}
+                                    );
+                                })}
+                            </>
+                        ) : (
+                            <>
+                                {(tab === 'pre' ? preChecklist : posChecklist).length === 0 && <EmptyState text={`Sem itens de ${tab === 'pre' ? 'pré' : 'pós'}-campanha`} />}
+                                {(tab === 'pre' ? preChecklist : posChecklist).map(item => (
+                                    <div key={item.id} className="group flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.01] hover:bg-white/[0.03] transition-all">
+                                        <button onClick={() => toggleChecklist(item)} className={`w-4 h-4 rounded border transition-all flex items-center justify-center shrink-0 ${item.completed ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-700 hover:border-emerald-500'}`}>
+                                            {item.completed && <Icons.Check />}
+                                        </button>
+                                        <span className={`flex-1 text-xs font-medium ${item.completed ? 'text-slate-600 line-through' : 'text-slate-300'}`}>{item.text}</span>
+                                        <button onClick={() => deleteChecklist(item.id)} className="text-slate-800 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"><Icons.X /></button>
+                                    </div>
+                                ))}
+                            </>
+                        )}
                     </div>
 
-                    <form className="p-4 bg-black/20 border-t border-white/5 space-y-3" onSubmit={addTask}>
-                        <div className="relative">
-                            <input className="w-full bg-[#0f1115] border border-white/10 p-3.5 pr-10 rounded-2xl text-sm outline-none focus:border-cyan-500/50 text-white font-medium placeholder:text-slate-800" placeholder="Nova tarefa..." value={txt} onChange={e => setTxt(e.target.value)} />
-                            <button type="submit" className="absolute right-4 top-1/2 -translate-y-1/2 text-cyan-600 hover:text-cyan-400" disabled={!txt.trim()}><Icons.Plus /></button>
-                        </div>
-                        {txt.trim() && (
-                            <div className="animate-in bg-black/30 p-2 rounded-xl border border-white/5 space-y-2">
-                                <span className="text-[9px] font-black text-slate-600 uppercase pl-2">Definir Responsável:</span>
-                                <ModernSelect value={selectedAssignee} options={assignees} onChange={setSelectedAssignee} />
-                            </div>
-                        )}
+                    <form className="p-4 bg-black/20 border-t border-white/5" onSubmit={handleAdd}>
+                        <input className={`w-full bg-[#0f1115] border p-3.5 rounded-2xl text-[13px] outline-none transition-all text-white font-medium placeholder:text-slate-800 ${tab === 'execucao' ? 'border-white/10 focus:border-cyan-500/50' : 'border-white/5 focus:border-slate-500'}`} placeholder={tab === 'execucao' ? "Nova tarefa operacional..." : `Novo item de ${tab === 'pre' ? 'pré' : 'pós'}-campanha...`} value={txt} onChange={e => setTxt(e.target.value)} />
                     </form>
 
-                    {/* Modais de Edição/Exclusão */}
-                    {isEditModal && (
-                        <div className="absolute inset-0 bg-[#161920]/98 backdrop-blur-md z-30 p-6 animate-in">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="font-bold text-white uppercase text-xs tracking-widest">Editar Projeto</h3>
-                                <button onClick={() => setIsEditModal(false)}><Icons.X /></button>
-                            </div>
-                            <div className="space-y-4">
-                                <input className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-white font-bold" value={editingLaunch.title} onChange={e => setEditingLaunch({...editingLaunch, title: e.target.value})} />
-                                <div className="grid grid-cols-2 gap-3">
-                                    <input type="date" className="bg-black/40 border border-white/10 p-4 rounded-xl text-white text-xs" value={editingLaunch.dateStart || ''} onChange={e => setEditingLaunch({...editingLaunch, dateStart: e.target.value})} />
-                                    <input type="date" className="bg-black/40 border border-white/10 p-4 rounded-xl text-white text-xs" value={editingLaunch.dateEvent || ''} onChange={e => setEditingLaunch({...editingLaunch, dateEvent: e.target.value})} />
-                                </div>
-                                <button onClick={async () => {
-                                    await baseRef.collection('launches').doc(launch.id).update({title: editingLaunch.title, dateStart: editingLaunch.dateStart, dateEvent: editingLaunch.dateEvent});
-                                    setIsEditModal(false);
-                                }} className="w-full bg-cyan-600 py-4 rounded-2xl font-bold text-xs uppercase shadow-lg shadow-cyan-900/40 text-white mt-4">Salvar Projeto</button>
-                            </div>
-                        </div>
+                    {activeTaskDetail && (
+                        <TaskDetailModal 
+                            task={activeTaskDetail} 
+                            allTasks={activeTasks}
+                            assignees={assignees} 
+                            onClose={() => setActiveTaskDetail(null)} 
+                            onUpdate={async (data) => { await baseRef.collection('tasks').doc(activeTaskDetail.id).update(data); setActiveTaskDetail(null); }}
+                            onDelete={() => { setTaskToDeleteId(activeTaskDetail.id); setActiveTaskDetail(null); }}
+                        />
                     )}
 
+                    {isEditModal && <EditLaunchModal launch={launch} onClose={() => setIsEditModal(false)} db={db} />}
+                    {isTagModal && <ManualTagModal launch={launch} onClose={() => setIsTagModal(false)} db={db} />}
+                    
                     {isDelModal && (
-                        <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center p-8 animate-in text-center">
-                            <div className="w-16 h-16 bg-red-600/10 text-red-600 rounded-full flex items-center justify-center mb-4"><Icons.Trash /></div>
-                            <p className="font-bold text-white mb-2 text-lg uppercase tracking-tight">Mover para lixeira?</p>
-                            <div className="flex gap-3 w-full mt-6">
-                                <button onClick={() => setIsDelModal(false)} className="flex-1 py-4 bg-white/5 rounded-2xl text-xs font-black uppercase">Cancelar</button>
-                                <button onClick={() => baseRef.collection('launches').doc(launch.id).update({isDeleted: true, deletedAt: firebase.firestore.FieldValue.serverTimestamp()})} className="flex-1 bg-red-600 py-4 rounded-2xl text-xs font-black uppercase">Remover</button>
-                            </div>
-                        </div>
+                        <ConfirmActionModal 
+                            title="Excluir lançamento?"
+                            text="Essa ação removerá este card. Deseja continuar?"
+                            onConfirm={() => baseRef.collection('launches').doc(launch.id).update({isDeleted: true, deletedAt: firebase.firestore.FieldValue.serverTimestamp()})} 
+                            onCancel={() => setIsDelModal(false)} 
+                            type="danger"
+                        />
+                    )}
+                    
+                    {isArchModal && (
+                        <ConfirmActionModal 
+                            title="Arquivar lançamento?"
+                            text="Este card será movido para os arquivados. Deseja continuar?"
+                            onConfirm={() => { baseRef.collection('launches').doc(launch.id).update({ isArchived: true }); setIsArchModal(false); }} 
+                            onCancel={() => setIsArchModal(false)} 
+                            type="warning"
+                        />
+                    )}
+
+                    {taskToDeleteId && (
+                        <ConfirmActionModal 
+                            title="Excluir tarefa?"
+                            text="Essa tarefa será removida do lançamento. Deseja continuar?"
+                            onConfirm={() => deleteTask(taskToDeleteId)} 
+                            onCancel={() => setTaskToDeleteId(null)} 
+                            type="danger"
+                        />
                     )}
                 </div>
             );
         }
 
-        function AssigneesModal({ assignees, onClose, db }) {
-            const [newName, setNewName] = useState('');
-            const baseRef = db.collection('shaktar_data').doc('main');
+        function ConfirmActionModal({ title, text, onConfirm, onCancel, type = "danger" }) {
+            return (
+                <div className="absolute inset-0 bg-black/95 z-[200] flex flex-col items-center justify-center p-10 text-center animate-in rounded-[2.5rem]">
+                    <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 ${type === 'danger' ? 'bg-red-600/10 text-red-600' : 'bg-amber-600/10 text-amber-600'}`}>
+                        {type === 'danger' ? <Icons.Trash /> : <Icons.Archive />}
+                    </div>
+                    <p className="font-bold text-white text-lg uppercase mb-2">{title}</p>
+                    <p className="text-slate-500 text-xs font-medium max-w-[200px] mb-8">{text}</p>
+                    <div className="flex gap-3 w-full">
+                        <button onClick={onCancel} className="flex-1 py-4 bg-white/5 rounded-2xl text-[10px] font-black uppercase text-slate-400 hover:text-white transition-all">Cancelar</button>
+                        <button 
+                            onClick={onConfirm} 
+                            className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase text-white shadow-lg active:scale-95 transition-all ${type === 'danger' ? 'bg-red-600 shadow-red-900/20' : 'bg-amber-600 shadow-amber-900/20'}`}
+                        >
+                            Confirmar
+                        </button>
+                    </div>
+                </div>
+            );
+        }
 
-            const addAssignee = async (e) => {
-                e.preventDefault(); if(!newName.trim()) return;
-                await baseRef.collection('assignees').add({ name: newName.trim() });
-                setNewName('');
+        function EmptyState({ text }) {
+            return (
+                <div className="h-full flex flex-col items-center justify-center opacity-20">
+                    <span className="text-2xl mb-2">📋</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest">{text}</span>
+                </div>
+            );
+        }
+
+        function TaskDetailModal({ task, allTasks, assignees, onClose, onUpdate, onDelete }) {
+            const [text, setText] = useState(task.text), [assignee, setAssignee] = useState(task.assignee || ''), [dependsOn, setDependsOn] = useState(task.dependsOn || ''), [impediment, setImpediment] = useState(task.impedimentReason || ''), [impType, setImpType] = useState(task.impedimentType || '');
+            const dependencyOptions = useMemo(() => allTasks.filter(t => t.id !== task.id).map(t => ({ id: t.id, name: t.text })), [allTasks, task.id]);
+            return (
+                <div className="absolute inset-0 bg-[#0f1115]/98 backdrop-blur-md z-[100] p-6 flex flex-col animate-in">
+                    <div className="flex justify-between items-center mb-6"><h4 className="font-bold text-cyan-400 uppercase text-[10px] tracking-[0.2em]">Detalhes da Tarefa</h4><button onClick={onClose} className="text-slate-500 hover:text-white"><Icons.X /></button></div>
+                    <div className="flex-1 space-y-6 overflow-y-auto custom-scrollbar pr-2">
+                        <div><label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-2 block mb-2">Descrição</label><textarea className="w-full bg-white/[0.03] border border-white/10 p-4 rounded-2xl text-[13px] text-white outline-none focus:border-cyan-500/40 min-h-[80px] resize-none" value={text} onChange={e => setText(e.target.value)} /></div>
+                        <div><label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-2 block mb-2">Responsável</label><ModernSelect value={assignee} options={assignees} onChange={setAssignee} /></div>
+                        <div className="bg-cyan-500/5 border border-cyan-500/10 p-5 rounded-[2rem] space-y-4">
+                            <div className="flex items-center gap-2 mb-1"><Icons.Link /><span className="text-[10px] font-black text-cyan-400 uppercase tracking-widest">Dependência Interna</span></div>
+                            <ModernSelect value={dependencyOptions.find(o => o.id === dependsOn)?.name || ''} options={dependencyOptions} onChange={(val) => setDependsOn(val)} placeholder="Depende de qual tarefa?" />
+                        </div>
+                        <div className="bg-red-500/5 border border-red-500/10 p-5 rounded-[2rem] space-y-4">
+                            <div className="flex items-center gap-2 mb-1"><Icons.ShieldAlert /><span className="text-[10px] font-black text-red-500 uppercase tracking-widest">Bloqueio Externo</span></div>
+                            <ModernSelect value={impType} options={IMPEDIMENT_TYPES.map(t => ({id: t, name: t}))} onChange={setImpType} placeholder="Tipo" />
+                            <textarea className="w-full bg-black/40 border border-white/5 p-3 rounded-xl text-[12px] text-white outline-none focus:border-red-500/30 placeholder:text-slate-700 min-h-[60px]" placeholder="Motivo..." value={impediment} onChange={e => setImpediment(e.target.value)} />
+                        </div>
+                    </div>
+                    <div className="flex gap-3 mt-6"><button onClick={onDelete} className="bg-red-600/10 text-red-500 p-4 rounded-2xl hover:bg-red-600 hover:text-white transition-all"><Icons.Trash /></button><button onClick={() => onUpdate({ text, assignee, dependsOn, impedimentReason: impediment, impedimentType: impType })} className="flex-1 bg-cyan-600 py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg active:scale-95 transition-all text-white">Salvar</button></div>
+                </div>
+            );
+        }
+
+        function ManualTagModal({ launch, onClose, db }) {
+            const [text, setText] = useState(launch.manualLabel?.text || '');
+            const [color, setColor] = useState(launch.manualLabel?.color || 'cyan');
+            const handleSave = async () => {
+                const baseRef = db.collection('shaktar_data').doc('main');
+                if (!text.trim()) await baseRef.collection('launches').doc(launch.id).update({ manualLabel: firebase.firestore.FieldValue.delete() });
+                else await baseRef.collection('launches').doc(launch.id).update({ manualLabel: { text: text.trim(), color: color } });
+                onClose();
+            };
+            return (
+                <div className="absolute inset-0 bg-[#0f1115]/98 backdrop-blur-md z-50 p-8 flex flex-col animate-in rounded-[2.5rem]">
+                    <div className="flex justify-between items-center mb-10">
+                        <h4 className="font-bold text-cyan-400 uppercase text-[10px] tracking-[0.3em] flex items-center gap-2"><Icons.Tag /> Etiqueta Manual</h4>
+                        <button onClick={onClose} className="text-slate-500 hover:text-white"><Icons.X /></button>
+                    </div>
+                    <div className="space-y-8">
+                        <div>
+                            <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-2 block mb-3">Texto da Etiqueta</label>
+                            <input autoFocus className="w-full bg-white/[0.03] border border-white/10 p-5 rounded-3xl text-[14px] text-white outline-none focus:border-cyan-500/40 font-bold placeholder:text-slate-800" placeholder="Ex: Prioridade Máxima..." value={text} onChange={e => setText(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-2 block mb-4">Seletor de Cor</label>
+                            <div className="flex justify-between items-center bg-black/40 p-5 rounded-[2rem] border border-white/5">
+                                {LABEL_COLORS.map(c => (
+                                    <button key={c.id} onClick={() => setColor(c.id)} className={`w-8 h-8 rounded-full transition-all duration-300 transform ${color === c.id ? 'scale-125 ring-4 ring-white/10 border-2 border-white' : 'hover:scale-110 opacity-50 hover:opacity-100'}`} style={{ backgroundColor: c.hex }} />
+                                ))}
+                            </div>
+                        </div>
+                        <div className="pt-6 space-y-3">
+                            <button onClick={handleSave} className="w-full bg-cyan-600 py-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-[0.2em] shadow-lg shadow-cyan-900/20 active:scale-95 transition-all text-white">Salvar Etiqueta</button>
+                            {launch.manualLabel && ( <button onClick={() => { setText(''); handleSave(); }} className="w-full py-4 text-[9px] font-black uppercase text-red-500/50 hover:text-red-500 transition-colors">Remover Etiqueta</button> )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function PipelineView({ launches, tasks, assignees, onOpenLaunch }) {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            
+            const [expandedIndicador, setExpandedIndicador] = useState(null); // 'critical', 'window', 'blocked'
+
+            const processed = useMemo(() => {
+                return launches.map(l => {
+                    const lTasks = tasks.filter(t => t.launchId === l.id && !t.isDeleted);
+                    const status = getLaunchStatus(l, lTasks);
+                    const capDate = parseLocalDate(l.dateStart);
+                    const diffCap = capDate ? Math.ceil((capDate - today) / (1000 * 60 * 60 * 24)) : null;
+                    const progVal = lTasks.length > 0 ? Math.round((lTasks.filter(t => t.completed).length / lTasks.length) * 100) : 0;
+                    
+                    const pendingTasksList = lTasks.filter(t => !t.completed);
+                    const responsiblesImpacted = [...new Set(pendingTasksList.map(t => t.assignee).filter(Boolean))];
+                    
+                    const blockedTasksList = pendingTasksList.filter(t => {
+                        const depBlocked = checkTaskDependencyBlocked(t, lTasks);
+                        return t.impedimentReason || depBlocked;
+                    }).map(t => ({
+                        task: t,
+                        reason: t.impedimentReason ? `[Ext: ${t.impedimentType}] ${t.impedimentReason}` : `Depende de: ${lTasks.find(lt => lt.id === t.dependsOn)?.text || 'Tarefa Pai'}`
+                    }));
+
+                    return { 
+                        ...l, 
+                        status, 
+                        progVal, 
+                        pendingTasks: pendingTasksList.length, 
+                        impediments: blockedTasksList.length, 
+                        blockedTasksList,
+                        responsiblesImpacted,
+                        diffCap, 
+                        priority: status.priority 
+                    };
+                }).sort((a, b) => b.priority - a.priority);
+            }, [launches, tasks]);
+
+            const alerts = {
+                critical: processed.filter(p => p.status.level === 'critical'),
+                window: processed.filter(p => p.diffCap !== null && p.diffCap >= 0 && p.diffCap <= 14),
+                blocked: processed.filter(p => p.impediments > 0)
             };
 
+            const squadRadar = useMemo(() => {
+                const list = assignees.map(a => {
+                    const pending = tasks.filter(t => t.assignee === a.name && !t.completed && !t.isDeleted).length;
+                    const isBusyInCritical = launches.some(l => tasks.some(t => t.launchId === l.id && t.assignee === a.name && !t.completed) && getLaunchStatus(l, tasks.filter(t => t.launchId === l.id)).level === 'critical');
+                    return { ...a, pending, critical: isBusyInCritical };
+                });
+                return list.filter(m => m.pending > 0).sort((a,b) => b.pending - a.pending);
+            }, [tasks, assignees, launches]);
+
+            const toggleIndicator = (id) => setExpandedIndicador(expandedIndicador === id ? null : id);
+
+            return (
+                <div className="flex-1 p-6 max-w-7xl mx-auto w-full flex flex-col gap-8 animate-in overflow-y-auto custom-scrollbar">
+                    {/* INDICADORES DO TOPO INTERATIVOS */}
+                    <section className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+                        {/* Críticos */}
+                        <div 
+                            onClick={() => toggleIndicator('critical')}
+                            className={`p-6 rounded-[2.5rem] border transition-all cursor-pointer relative overflow-hidden group ${expandedIndicador === 'critical' ? 'ring-2 ring-red-500' : ''} ${alerts.critical.length > 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-[#161920] border-white/5 opacity-60'}`}
+                        >
+                            <div className="flex justify-between items-center mb-4 relative z-10">
+                                <div className="flex items-center gap-2"><Icons.ShieldAlert /><span className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em]">Críticos / Atrasados</span></div>
+                                <div className={`w-2.5 h-2.5 rounded-full ${alerts.critical.length > 0 ? 'bg-red-500 animate-pulse shadow-[0_0_10px_#ef4444]' : 'bg-slate-700'}`}></div>
+                            </div>
+                            <div className="flex items-baseline gap-2 relative z-10">
+                                <h3 className="text-4xl font-black text-white">{alerts.critical.length}</h3>
+                                <span className="text-[10px] text-slate-600 font-black uppercase">Operações</span>
+                            </div>
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity"><Icons.ChevronDown /></div>
+                        </div>
+
+                        {/* Janela de Captação */}
+                        <div 
+                            onClick={() => toggleIndicator('window')}
+                            className={`p-6 rounded-[2.5rem] bg-[#161920] border transition-all cursor-pointer group relative overflow-hidden ${expandedIndicador === 'window' ? 'ring-2 ring-cyan-500' : 'border-white/5'}`}
+                        >
+                            <div className="flex justify-between items-center mb-4 relative z-10">
+                                <div className="flex items-center gap-2"><Icons.Clock /><span className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em]">Janela de Captação</span></div>
+                            </div>
+                            <div className="flex items-baseline gap-2 relative z-10">
+                                <h3 className="text-4xl font-black text-cyan-400">{alerts.window.length}</h3>
+                                <span className="text-[10px] text-slate-600 font-black uppercase">Próximos 14d</span>
+                            </div>
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity"><Icons.ChevronDown /></div>
+                        </div>
+
+                        {/* Bloqueios */}
+                        <div 
+                            onClick={() => toggleIndicator('blocked')}
+                            className={`p-6 rounded-[2.5rem] bg-[#161920] border transition-all cursor-pointer group relative overflow-hidden ${expandedIndicador === 'blocked' ? 'ring-2 ring-orange-500' : 'border-white/5'}`}
+                        >
+                            <div className="flex justify-between items-center mb-4 relative z-10">
+                                <div className="flex items-center gap-2 text-orange-500"><Icons.Alert /><span className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em]">Pendências de Bloqueio</span></div>
+                            </div>
+                            <div className="flex items-baseline gap-2 relative z-10">
+                                <h3 className="text-4xl font-black text-orange-500">{alerts.blocked.reduce((acc, l) => acc + l.impediments, 0)}</h3>
+                                <span className="text-[10px] text-slate-600 font-black uppercase">Itens Bloqueados</span>
+                            </div>
+                            <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity"><Icons.ChevronDown /></div>
+                        </div>
+                    </section>
+
+                    {/* ÁREA DE DETALHAMENTO DOS INDICADORES */}
+                    {expandedIndicador && (
+                        <div className="bg-[#161920] rounded-[2.5rem] border border-white/10 p-8 animate-in shadow-2xl overflow-hidden relative">
+                            <button onClick={() => setExpandedIndicador(null)} className="absolute top-6 right-6 text-slate-600 hover:text-white"><Icons.X /></button>
+                            <h2 className="text-xs font-black uppercase tracking-[0.4em] text-slate-500 mb-8 flex items-center gap-3">
+                                <div className="w-1 h-3 bg-cyan-600"></div>
+                                Detalhamento do Indicador: {expandedIndicador === 'critical' ? 'Operações Críticas' : expandedIndicador === 'window' ? 'Captação Próxima' : 'Gargalos e Bloqueios'}
+                            </h2>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {expandedIndicador === 'critical' && alerts.critical.map(l => (
+                                    <DetailCard key={l.id} launch={l} onOpen={onOpenLaunch} />
+                                ))}
+                                {expandedIndicador === 'window' && alerts.window.map(l => (
+                                    <DetailCard key={l.id} launch={l} showCapTime onOpen={onOpenLaunch} />
+                                ))}
+                                {expandedIndicador === 'blocked' && alerts.blocked.map(l => (
+                                    <div key={l.id} className="p-5 bg-black/40 border border-white/5 rounded-3xl space-y-3">
+                                        <div className="flex justify-between items-start">
+                                            <h4 className="text-[11px] font-black text-white uppercase truncate pr-2">{l.title}</h4>
+                                            <button onClick={() => onOpenLaunch(l.id)} className="text-cyan-400"><Icons.Search /></button>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {l.blockedTasksList.map((bt, idx) => (
+                                                <div key={idx} className="p-3 bg-red-500/5 rounded-xl border border-red-500/10">
+                                                    <p className="text-[10px] font-bold text-slate-200 mb-1 leading-tight">{bt.task.text}</p>
+                                                    <p className="text-[9px] font-black text-red-500/60 uppercase flex items-center gap-1.5"><Icons.ShieldAlert /> {bt.reason}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                            {((expandedIndicador === 'critical' && alerts.critical.length === 0) || 
+                              (expandedIndicador === 'window' && alerts.window.length === 0) || 
+                              (expandedIndicador === 'blocked' && alerts.blocked.length === 0)) && (
+                                <p className="text-center py-10 text-slate-700 font-black uppercase text-[10px] tracking-widest">Nenhum registro encontrado para este filtro.</p>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        {/* FLUXO OPERACIONAL (CARDS ESTÁTICOS) */}
+                        <section className="lg:col-span-8 space-y-6">
+                            <div className="flex items-center justify-between px-4"><div className="flex items-center gap-3"><div className="bg-white/5 p-2 rounded-lg text-slate-500"><Icons.Chart /></div><h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em]">Fluxo Operacional de Risco</h2></div></div>
+                            <div className="space-y-4">
+                                {processed.map(l => (
+                                    <div 
+                                        key={l.id} 
+                                        className={`group p-6 rounded-[2rem] bg-[#161920] border transition-all flex flex-col md:flex-row gap-6 items-center ${l.status.class} ${getCardContour(l)}`}
+                                    >
+                                        <div className="flex-1 w-full min-w-0">
+                                            <div className="flex flex-col gap-2 mb-3">
+                                                <div className="flex items-center gap-3">
+                                                    <h4 className={`font-bold text-white text-base truncate uppercase tracking-tight ${l.status.level === 'done' ? 'opacity-40' : ''}`}>{l.title}</h4>
+                                                    <div className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest text-white shadow-sm ${l.status.color}`}>{l.status.label}</div>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {l.manualLabel && ( <div className={`flex items-center gap-1.5 px-2 py-1 rounded border self-start ${LABEL_COLORS.find(c => c.id === l.manualLabel.color)?.bg} ${LABEL_COLORS.find(c => c.id === l.manualLabel.color)?.text} ${LABEL_COLORS.find(c => c.id === l.manualLabel.color)?.border}`}><Icons.Tag /><span className="text-[9px] font-black uppercase tracking-widest">{l.manualLabel.text}</span></div> )}
+                                                    {l.impediments > 0 && ( <div className="flex items-center gap-1.5 px-2 py-1 rounded border border-orange-500/20 bg-orange-500/5 text-orange-400"><Icons.Link /><span className="text-[9px] font-black uppercase tracking-widest">{l.impediments} Bloqueio{l.impediments > 1 ? 's' : ''}</span></div> )}
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-wrap gap-3 items-center">
+                                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${l.status.level === 'critical' ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-black/40 border-white/5 text-slate-400'}`}><Icons.Clock /><span className="text-[10px] font-bold uppercase">Cap: <span className="text-white">{l.diffCap !== null ? (l.diffCap <= 0 ? 'Iniciada' : `${l.diffCap}d`) : '--'}</span></span></div>
+                                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-black/40 border-white/5 text-slate-400"><Icons.Check /><span className="text-[10px] font-bold uppercase">Progresso: <span className="text-white">{l.progVal}%</span></span></div>
+                                                
+                                                {l.responsiblesImpacted.length > 0 && (
+                                                    <div className="flex -space-x-2 ml-2">
+                                                        {l.responsiblesImpacted.slice(0, 3).map((r, i) => (
+                                                            <div key={i} title={r} className="w-6 h-6 rounded-lg bg-cyan-600 border-2 border-[#161920] flex items-center justify-center text-[8px] font-black text-white uppercase">{r[0]}</div>
+                                                        ))}
+                                                        {l.responsiblesImpacted.length > 3 && (
+                                                            <div className="w-6 h-6 rounded-lg bg-slate-800 border-2 border-[#161920] flex items-center justify-center text-[8px] font-black text-slate-400">+{l.responsiblesImpacted.length - 3}</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-6 shrink-0 w-full md:w-auto border-t md:border-t-0 md:border-l border-white/5 pt-4 md:pt-0 md:pl-8">
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-[8px] font-black text-slate-600 uppercase mb-1 tracking-widest">Pendências</span>
+                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg shadow-inner ${l.pendingTasks > 0 ? 'bg-white/5 text-white' : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'}`}>{l.pendingTasks === 0 ? <Icons.Check /> : l.pendingTasks}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                        
+                        {/* CARGA DA SQUAD */}
+                        <section className="lg:col-span-4 space-y-6">
+                            <div className="flex items-center gap-3 ml-4 mb-4"><div className="bg-white/5 p-2 rounded-lg text-slate-500"><Icons.Users /></div><h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em]">Carga da Squad</h2></div>
+                            <div className="bg-[#161920] border border-white/5 rounded-[2.5rem] p-6 space-y-3 shadow-xl">
+                                {squadRadar.map(member => (
+                                    <div key={member.id} className="p-4 bg-black/20 rounded-2xl border border-white/5 flex items-center justify-between group hover:border-cyan-500/30 transition-all"><div className="flex items-center gap-3"><div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black text-white shadow-lg transition-all ${member.critical ? 'bg-red-600 pulse-red ring-4 ring-red-600/10' : 'bg-cyan-600'}`}>{member.name[0]}</div><div className="flex flex-col"><span className="text-xs font-bold text-slate-300 group-hover:text-white transition-colors">{member.name}</span>{member.critical && <span className="text-[8px] font-black text-red-500 uppercase tracking-widest">Em Risco</span>}</div></div><div className="flex flex-col items-end"><span className="text-[9px] font-black text-slate-600 uppercase mb-1">Tasks</span><span className={`text-base font-black ${member.pending > 8 ? 'text-red-500' : member.pending > 4 ? 'text-yellow-500' : 'text-cyan-400'}`}>{member.pending}</span></div></div>
+                                ))}
+                            </div>
+                            <div className="bg-[#161920]/40 border border-white/5 rounded-[2.5rem] p-8 space-y-6">
+                                <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] flex items-center gap-2"><div className="w-1 h-3 bg-cyan-600"></div> Legenda Operacional</h3>
+                                <div className="grid grid-cols-1 gap-4">
+                                    <LegendItem color="bg-red-600" label="Crítico (Prazos + Bloqueios)" />
+                                    <LegendItem color="bg-red-500" label="Urgente (Captação < 3d)" />
+                                    <LegendItem color="bg-orange-500" label="Alerta (Captação < 7d)" />
+                                    <LegendItem color="bg-purple-600" label="Em Evento" />
+                                    <LegendItem color="bg-cyan-700" label="Planejamento" />
+                                    <LegendItem color="bg-slate-600" label="Encerrado" />
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            );
+        }
+
+        function DetailCard({ launch, showCapTime = false, onOpen }) {
+            return (
+                <div className="p-5 bg-black/40 border border-white/5 rounded-3xl hover:border-white/10 transition-all group">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="truncate pr-2">
+                            <h4 className="text-[11px] font-black text-white uppercase truncate">{launch.title}</h4>
+                            <p className="text-[8px] text-slate-600 uppercase font-black tracking-widest mt-1">Status: {launch.status.label}</p>
+                        </div>
+                        <button onClick={() => onOpen(launch.id)} className="p-2 bg-white/5 rounded-xl text-cyan-400 hover:bg-cyan-600 hover:text-white transition-all"><Icons.Search /></button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="p-3 bg-white/[0.02] rounded-2xl border border-white/5">
+                            <span className="text-[8px] font-black text-slate-600 uppercase block mb-1">Pendências</span>
+                            <span className="text-xs font-black text-white">{launch.pendingTasks}</span>
+                        </div>
+                        <div className="p-3 bg-white/[0.02] rounded-2xl border border-white/5">
+                            <span className="text-[8px] font-black text-slate-600 uppercase block mb-1">{showCapTime ? 'Captação' : 'Progresso'}</span>
+                            <span className={`text-xs font-black ${showCapTime ? 'text-cyan-400' : 'text-white'}`}>{showCapTime ? (launch.diffCap <= 0 ? 'Hj' : `${launch.diffCap}d`) : `${launch.progVal}%`}</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function LegendItem({ color, label }) {
+            return ( <div className="flex items-center gap-3 group"><div className={`w-2.5 h-2.5 rounded-full ${color} shrink-0 shadow-lg`}></div><span className="text-[10px] font-bold text-slate-400 group-hover:text-slate-200 transition-colors uppercase tracking-tight">{label}</span></div> );
+        }
+
+        function AddLaunchModal({ onClose, db }) {
+            const [data, setData] = useState({ title: '', dateStart: '', dateEvent: '', dateEnd: '' });
+            const [error, setError] = useState('');
+            const validateAndSave = async (e) => {
+                e.preventDefault();
+                const d1 = parseLocalDate(data.dateStart), d2 = parseLocalDate(data.dateEvent), d3 = parseLocalDate(data.dateEnd);
+                if (!data.title.trim()) return setError('Nome obrigatório.');
+                if (!d1 || !d2 || !d3) return setError('Datas obrigatórias.');
+                await db.collection('shaktar_data').doc('main').collection('launches').add({ ...data, isDeleted: false, isArchived: false, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+                onClose();
+            };
+            return (
+                <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4 animate-in backdrop-blur-sm">
+                    <div className="bg-[#1c2128] p-10 rounded-[2.5rem] w-full max-w-md border border-white/10 shadow-2xl relative">
+                        <button onClick={onClose} className="absolute top-8 right-8 text-slate-500 hover:text-white transition-colors"><Icons.X /></button>
+                        <h2 className="text-xl font-bold mb-8 text-white tracking-tight flex items-center gap-3">🚀 Novo Lançamento</h2>
+                        <form className="space-y-5" onSubmit={validateAndSave}>
+                            <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2 pl-2">Nome do Projeto</label><input autoFocus className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-white outline-none focus:ring-2 focus:ring-cyan-500/40" value={data.title} onChange={e => setData({...data, title: e.target.value})} placeholder="Ex: Jornada XRM" /></div>
+                            <div className="space-y-4">
+                                <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1 pl-2">Início Captação</label><input type="date" className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-white text-xs outline-none focus:border-cyan-500/30" value={data.dateStart} onChange={e => setData({...data, dateStart: e.target.value})} /></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1 pl-2">Início Evento</label><input type="date" className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-white text-xs outline-none focus:border-cyan-500/30" value={data.dateEvent} onChange={e => setData({...data, dateEvent: e.target.value})} /></div>
+                                    <div><label className="text-[10px] font-black text-slate-500 uppercase block mb-1 pl-2">Fim Evento</label><input type="date" className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-white text-xs outline-none focus:border-cyan-500/30" value={data.dateEnd} onChange={e => setData({...data, dateEnd: e.target.value})} /></div>
+                                </div>
+                            </div>
+                            {error && <p className="text-red-500 text-[10px] font-black uppercase tracking-widest text-center animate-pulse">{error}</p>}
+                            <button className="w-full bg-cyan-600 hover:bg-cyan-500 py-5 rounded-2xl font-black text-white text-[11px] uppercase tracking-[0.2em] transition-all active:scale-95 shadow-lg shadow-cyan-900/20">Criar Operação</button>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
+        function EditLaunchModal({ launch, onClose, db }) {
+            const [data, setData] = useState({ ...launch });
+            return (
+                <div className="absolute inset-0 bg-[#161920]/98 backdrop-blur-md z-30 p-8 animate-in rounded-[2.5rem]">
+                    <div className="flex justify-between items-center mb-8"><h3 className="font-bold text-white uppercase text-xs tracking-[0.2em]">Configurar Operação</h3><button onClick={onClose} className="text-slate-500 hover:text-white"><Icons.X /></button></div>
+                    <div className="space-y-5">
+                        <input className="w-full bg-black/40 border border-white/10 p-4 rounded-2xl text-white font-bold" value={data.title} onChange={e => setData({...data, title: e.target.value})} />
+                        <div className="space-y-4">
+                            <div><label className="text-[9px] font-black text-slate-600 uppercase pl-2">Captação</label><input type="date" className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-white text-xs" value={data.dateStart || ''} onChange={e => setData({...data, dateStart: e.target.value})} /></div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div><label className="text-[9px] font-black text-slate-600 uppercase pl-2">Início</label><input type="date" className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-white text-xs" value={data.dateEvent || ''} onChange={e => setData({...data, dateEvent: e.target.value})} /></div>
+                                <div><label className="text-[9px] font-black text-slate-600 uppercase pl-2">Fim</label><input type="date" className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-white text-xs" value={data.dateEnd || ''} onChange={e => setData({...data, dateEnd: e.target.value})} /></div>
+                            </div>
+                        </div>
+                        <button onClick={async () => { await db.collection('shaktar_data').doc('main').collection('launches').doc(launch.id).update(data); onClose(); }} className="w-full bg-cyan-600 py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg text-white mt-4 transition-all">Atualizar</button>
+                    </div>
+                </div>
+            );
+        }
+
+        function AssigneesModal({ assignees, onClose, db }) {
+            const [name, setName] = useState('');
+            const baseRef = db.collection('shaktar_data').doc('main');
             return (
                 <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in">
-                    <div className="bg-[#1c2128] w-full max-w-md rounded-[2.5rem] border border-white/10 flex flex-col shadow-2xl overflow-hidden">
-                        <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-                            <h2 className="font-bold text-white uppercase text-sm tracking-widest flex items-center gap-2"><Icons.Users /> Responsáveis</h2>
-                            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-400 hover:text-white"><Icons.X /></button>
-                        </div>
-                        <form className="p-6 border-b border-white/5 bg-black/20" onSubmit={addAssignee}>
-                            <div className="flex gap-2">
-                                <input className="flex-1 bg-[#0f1115] border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-cyan-500/50 text-white" placeholder="Novo nome..." value={newName} onChange={e => setNewName(e.target.value)} />
-                                <button type="submit" className="bg-cyan-600 px-6 rounded-2xl font-bold text-white shadow-lg"><Icons.Plus /></button>
-                            </div>
+                    <div className="bg-[#1c2128] w-full max-md rounded-[2.5rem] border border-white/10 flex flex-col shadow-2xl overflow-hidden">
+                        <div className="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]"><h2 className="font-bold text-white uppercase text-sm tracking-widest flex items-center gap-2"><Icons.Users /> Squad</h2><button onClick={onClose} className="text-slate-500 hover:text-white"><Icons.X /></button></div>
+                        <form className="p-8 border-b border-white/5 bg-black/20" onSubmit={async (e) => { e.preventDefault(); if(!name.trim()) return; await baseRef.collection('assignees').add({ name: name.trim() }); setName(''); }}>
+                            <div className="flex gap-2"><input className="flex-1 bg-[#0f1115] border border-white/10 p-4 rounded-2xl text-sm outline-none focus:border-cyan-500/50 text-white" placeholder="Nome..." value={name} onChange={e => setName(e.target.value)} /><button type="submit" className="bg-cyan-600 px-6 rounded-2xl font-bold text-white"><Icons.Plus /></button></div>
                         </form>
-                        <div className="p-6 space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar">
-                            {assignees.map(a => (
-                                <div key={a.id} className="flex justify-between items-center p-4 bg-white/5 rounded-2xl border border-white/5 group hover:border-white/10">
-                                    <span className="text-sm font-bold text-slate-300">{a.name}</span>
-                                    <button onClick={() => baseRef.collection('assignees').doc(a.id).delete()} className="text-slate-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"><Icons.Trash /></button>
-                                </div>
-                            ))}
+                        <div className="p-8 space-y-3 max-h-[40vh] overflow-y-auto custom-scrollbar">
+                            {assignees.map(a => ( <div key={a.id} className="flex justify-between items-center p-4 bg-white/5 rounded-2xl border border-white/5 group"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-bold text-slate-400 group-hover:bg-cyan-600 group-hover:text-white transition-all">{a.name[0]}</div><span className="text-sm font-bold text-slate-300 group-hover:text-white">{a.name}</span></div><button onClick={() => baseRef.collection('assignees').doc(a.id).delete()} className="text-slate-700 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"><Icons.Trash /></button></div> ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function ArchivesModal({ launches, onClose, db }) {
+            const baseRef = db.collection('shaktar_data').doc('main');
+            return (
+                <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in">
+                    <div className="bg-[#1c2128] w-full max-w-3xl rounded-[2.5rem] border border-white/10 flex flex-col h-[80vh] overflow-hidden shadow-2xl">
+                        <div className="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]"><h2 className="font-bold text-white uppercase text-sm tracking-widest flex items-center gap-2"><Icons.Archive /> Arquivados</h2><button onClick={onClose} className="text-slate-500 hover:text-white"><Icons.X /></button></div>
+                        <div className="flex-1 overflow-y-auto p-8 space-y-4 bg-black/10 custom-scrollbar">
+                            {launches.map(l => ( <div key={l.id} className="p-6 bg-[#161920] rounded-[2rem] border border-white/5 flex justify-between items-center"><div className="flex flex-col flex-1 truncate mr-4"><h4 className="text-white font-bold text-lg truncate">{l.title}</h4><span className="text-[10px] text-slate-600 font-bold uppercase mt-1 tracking-widest">{l.dateStart || 'Sem data'}</span></div><button onClick={() => baseRef.collection('launches').doc(l.id).update({isArchived: false})} className="bg-cyan-600/10 text-cyan-400 border border-cyan-500/20 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase hover:bg-cyan-600 hover:text-white transition-all">Restaurar</button></div> ))}
                         </div>
                     </div>
                 </div>
@@ -514,39 +938,21 @@
             const [tab, setTab] = useState('L');
             const baseRef = db.collection('shaktar_data').doc('main');
             const items = tab === 'L' ? launches : tasks;
-
-            const restoreItem = async (id, collection) => {
-                await baseRef.collection(collection).doc(id).update({isDeleted: false, deletedAt: null});
-            };
-
-            const deletePermanently = async (id, collection) => {
-                await baseRef.collection(collection).doc(id).delete();
-            };
-
             return (
                 <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in">
                     <div className="bg-[#1c2128] w-full max-w-2xl rounded-[2.5rem] border border-white/10 flex flex-col h-[80vh] overflow-hidden shadow-2xl">
-                        <div className="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-                            <div>
-                                <h2 className="font-bold text-white uppercase text-sm tracking-widest">Lixeira</h2>
-                                <p className="text-[10px] text-slate-500 font-black uppercase mt-0.5">Retenção de 4 dias</p>
-                            </div>
-                            <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-slate-400 hover:text-white"><Icons.X /></button>
-                        </div>
+                        <div className="p-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]"><h2 className="font-bold text-white uppercase text-sm tracking-widest flex items-center gap-2">Lixeira</h2><button onClick={onClose} className="text-slate-500 hover:text-white"><Icons.X /></button></div>
                         <div className="flex p-2 gap-2 bg-black/30 border-b border-white/5">
-                            <button onClick={() => setTab('L')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${tab === 'L' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-slate-600 hover:text-slate-400'}`}>Projetos ({launches.length})</button>
-                            <button onClick={() => setTab('T')} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all ${tab === 'T' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'text-slate-600 hover:text-slate-400'}`}>Tarefas ({tasks.length})</button>
+                            <button onClick={() => setTab('L')} className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase transition-all ${tab === 'L' ? 'bg-cyan-500/10 text-cyan-400' : 'text-slate-600'}`}>Lançamentos ({launches.length})</button>
+                            <button onClick={() => setTab('T')} className={`flex-1 py-4 rounded-xl text-[10px] font-black uppercase transition-all ${tab === 'T' ? 'bg-cyan-500/10 text-cyan-400' : 'text-slate-600'}`}>Tarefas ({tasks.length})</button>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-black/10 custom-scrollbar">
-                            {items.length === 0 ? <p className="text-center py-20 opacity-20 font-black text-xs uppercase tracking-widest">Vazio</p> : items.map(i => (
-                                <div key={i.id} className="p-5 bg-[#0f1115] rounded-2xl flex justify-between items-center border border-white/5">
-                                    <div className="flex flex-col min-w-0 pr-4">
-                                        <span className="text-sm truncate font-medium text-slate-300">{i.title || i.text}</span>
-                                        {i.phase && <span className="text-[9px] text-slate-600 font-bold uppercase mt-0.5">{i.phase}</span>}
-                                    </div>
+                        <div className="flex-1 overflow-y-auto p-8 space-y-4 bg-black/10 custom-scrollbar">
+                            {items.map(i => (
+                                <div key={i.id} className="p-5 bg-[#0f1115] rounded-3xl flex justify-between items-center border border-white/5 group hover:border-white/10 transition-all">
+                                    <div className="flex flex-col flex-1 truncate mr-4"><span className="text-sm truncate font-medium text-slate-300 group-hover:text-white">{i.title || i.text}</span></div>
                                     <div className="flex gap-2 shrink-0">
-                                        <button onClick={() => restoreItem(i.id, tab === 'L' ? 'launches' : 'tasks')} className="text-cyan-400 text-[9px] font-black border border-cyan-500/20 px-4 py-2 rounded-xl hover:bg-cyan-400 hover:text-black transition-all uppercase">Restaurar</button>
-                                        <button onClick={() => deletePermanently(i.id, tab === 'L' ? 'launches' : 'tasks')} className="text-red-500 text-[9px] font-black border border-red-500/20 px-4 py-2 rounded-xl hover:bg-red-600 hover:text-white transition-all uppercase">Excluir</button>
+                                        <button onClick={() => baseRef.collection(tab === 'L' ? 'launches' : 'tasks').doc(i.id).update({isDeleted: false, deletedAt: null})} className="text-cyan-400 text-[9px] font-black border border-cyan-500/30 px-4 py-2 rounded-xl flex items-center gap-2 uppercase tracking-widest"><Icons.RotateCcw /> Restaurar</button>
+                                        <button onClick={() => baseRef.collection(tab === 'L' ? 'launches' : 'tasks').doc(i.id).delete()} className="text-red-500 text-[9px] font-black border border-red-500/30 px-4 py-2 rounded-xl flex items-center gap-2 uppercase tracking-widest">Apagar</button>
                                     </div>
                                 </div>
                             ))}
